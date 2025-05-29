@@ -1,0 +1,2703 @@
+# Projekt końcowy z Pythona i Machine Learning
+## Importowanie bibliotek
+
+
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import missingno as msno
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.decomposition import PCA
+from sklearn.cluster import KMeans
+from sklearn.metrics import roc_auc_score, classification_report, confusion_matrix
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from xgboost import XGBClassifier
+
+
+##Wczytanie danych
+
+# Załadowanie danych
+loan_data = pd.read_csv('Loan_data.csv', low_memory=False)
+
+
+loan_data.shape
+
+
+
+
+
+##Teraz zajmę się czyszczeniem danych.
+
+# W mojej analizie usuwam od razu całkiem puste kolumny
+# Usunięcie kolumn z samymi pustymi wartościami
+loan_data.dropna(axis=1, how='all', inplace=True)
+
+# Wyświetlenie pozostałych kolumn i kształtu DataFrame
+print("Pozostałe kolumny po usunięciu:", loan_data.columns)
+print("Kształt DataFrame po usunięciu:", loan_data.shape)
+
+loan_data
+
+# Wizualizacja braków danych
+plt.figure(figsize=(10, 6))
+msno.bar(loan_data, color="skyblue")
+plt.title("Missing Data in Selected Columns")
+plt.xlabel("Columns")
+plt.ylabel("Number of Rows Missing")
+plt.show()
+
+
+#Lista kolumn do usunięcia ze względu na nieprzydatność w dalszej analizie ze względu na nieistotne wartości trudne do wypełnienia i analizowania
+columns_to_remove = ['emp_title','application_type', 'collections_12_mths_ex_med','disbursement_method',
+                     'emp_title', 'funded_amnt_inv', 'id' ]
+
+#Lista kolumn do usunięcia ze względu na zawarte informacje z przyszłości
+future_info_columns=['collection_recovery_fee', 'debt_settlement_flag', 'debt_settlement_flag_date',
+                     'deferral_term', 'hardship_amount', 'hardship_dpd', 'hardship_end_date', 'hardship_flag',
+                     'hardship_last_payment_amount', 'hardship_lenght', 'harship_loan_status', 'hardship_payoff_balance_amount',
+                     'harship_reason', 'hardship_start_date', 'hardship_status', 'harship_type',]
+
+
+
+
+
+
+```
+
+### Wypełnianie pustych wartości w istotnych do dalszej analizy kolumnach
+
+#acc_now_delinq istotna koluumna zawierająca dane o zadłużeniu wypełniam wartością zero dla pustych kolumn zakładam ze dana osoba nie ma zadłuzenia.
+loan_data['acc_now_delinq'].fillna(0, inplace=True)
+
+loan_data['loan_status']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['loan_status'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'loan_status': {empty_slots}")
+#Sprawdzam unikalne wartości
+unique_values = loan_data['loan_status'].unique()
+print(f"Unikalne wartości w kolumnie 'loan_status': {unique_values}")
+
+# Ujednolicenie wartości w celu łatwiejszego dalszego powrównania czy pozyczka została spłacona.
+def ujednolic_sytuacje(status):
+    if status in ['Does not meet the credit policy. Status:Fully Paid', 'Fully Paid']:
+        return 'Fully Paid'
+    elif status in ['Does not meet the credit policy. Status:Charged Off', 'Charged Off']:
+        return 'Charged Off'
+    else:
+        return status  # Zwracamy NaN lub inne niezmienione wartości
+
+# Zastosowanie funkcji do kolumny
+loan_data['loan_status'] = loan_data['loan_status'].apply(ujednolic_sytuacje)
+
+# jedną brakującą wartość wypełniam dominantą
+loan_data['loan_status'].fillna(loan_data['loan_status'].mode()[0], inplace=True)
+
+
+
+#Postanowiłem usunąć kolumny grade oraz sub_grade Skoro grade i sub_grade są ocenami przypisanymi przez instytucję na podstawie ich analizy ryzyka, mogą zawierać informacje pochodzące z bardziej zaawansowanych analiz. Usunięcie tych kolumn pozwala modelowi pracować wyłącznie na danych pierwotnych, eliminując potencjalne źródło przecieku informacji.
+columns_to_remove.append('grade')
+columns_to_remove.append('sub_grade')
+#Sprawdzam czy dodano
+print(columns_to_remove)
+
+#Usuwam teżkolumnę addr_state
+columns_to_remove.append('addr_state')
+#Sprawdzam czy dodano
+print(columns_to_remove)
+
+
+
+loan_data['home_ownership']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['home_ownership'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'home_ownership': {empty_slots}")
+#Sprawdzam unikalne wartości
+unique_values = loan_data['home_ownership'].unique()
+print(f"Unikalne wartości w kolumnie 'home_ownership': {unique_values}")
+
+# Zliczenie unikalnych wartości w kolumnie home_ownership
+value_counts = loan_data['home_ownership'].value_counts()
+print(value_counts)
+
+# Liczba wartości 'NONE'
+
+none_count = value_counts.get('NONE')  # Pobranie wartości dla klucza 'NONE'
+print(f"Liczba wartości 'NONE': {none_count}")
+# Jest tylko 8 Wartości none więc warto je zastąpić dominantą . 8 wartości to minimalny wplyw.
+loan_data['home_ownership'].fillna(loan_data['home_ownership'].mode()[0], inplace=True)
+# Obliczenie najczęściej występującej wartości w kolumnie home_ownership
+most_frequent_value = loan_data['home_ownership'].mode()[0]
+
+# Zastąpienie wartości NONE najczęściej występującą wartością
+loan_data['home_ownership'].replace('NONE', most_frequent_value, inplace=True)
+
+# Sprawdzenie zmienionych wartości
+print(loan_data['home_ownership'].value_counts())
+
+
+#addr_state brakuje tylko jednej pustej wartości , więc wypełniam ją najcześciej wsytępującą wartością.
+loan_data['addr_state'].fillna(loan_data['addr_state'].mode()[0], inplace=True)
+
+#annual_inc istotna kolumna dla oceny zdolnisci kredytowej
+
+loan_data['annual_inc']
+# Sprawdzenie liczby brakujących wartości w kolumnie 'annual_inc'
+missing_annual_inc = loan_data['annual_inc'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'annual_inc': {missing_annual_inc}")
+#Liczba unikalnych wartości
+unique_values_count = loan_data['annual_inc'].nunique()
+print(f"Liczba unikalnych wartości w kolumnie 'annual_inc': {unique_values_count}")
+
+#Brakuje tylko 5 wartości więc wypełniam je medianą
+loan_data['annual_inc'].fillna(loan_data['annual_inc'].median(), inplace=True)
+
+#Sprawdzam czy zostało wypełnione
+missing_annual_inc = loan_data['annual_inc'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'annual_inc': {missing_annual_inc}")
+
+#application_type brakuje tylko jednej wartości i może być istotne
+loan_data['application_type']
+# Sprawdzenie liczby brakujących wartości
+empty_slots = loan_data['application_type'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'application_type': {empty_slots}")
+
+
+
+loan_data['application_type']
+# Sprawdzenie liczby unikalnych wartości w kolumnie 'application_type'
+unique_values_count = loan_data['application_type'].nunique()
+print(f"Liczba unikalnych wartości w kolumnie 'application_type': {unique_values_count}")
+#Kolumna zawiera wszystki takie same wartosci wiec nie bedzie miała znaczenia dla dalszej analizy. wrzucam ją na liste columns to remove
+columns_to_remove.append('application_type')
+#Sprawdzam czy dodano
+print(columns_to_remove)
+
+
+#Analiza Kolumny
+loan_data['chargeoff_within_12_mths']
+# Sprawdzenie liczby unikalnych wartości w kolumnie 'chargeoff_within_12_mths'
+unique_values_count = loan_data['chargeoff_within_12_mths'].nunique()
+print(f"Liczba unikalnych wartości w kolumnie 'chargeoff_within_12_mths': {unique_values_count}")
+#Kolumna zawiera wszystki takie same wartosci wiec nie bedzie miała znaczenia dla dalszej analizy
+empty_slots = loan_data['chargeoff_within_12_mths'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'chargeoff_within_12_mths': {empty_slots}")
+# wrzucam ją do zbioru kolumn do usuniecia
+columns_to_remove.append('chargeoff_within_12_mths')
+
+# Analiza kolumny collections_12_mths_ex_med
+empty_slots = loan_data['collections_12_mths_ex_med'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'collections_12_mths_ex_med': {empty_slots}")
+# zawiera istotne dane i brakuje w niej tylko 146 wartości.
+# sprawdzam ile ma unikalnych wartości, aby ocenić czy rzeczywiście bedzie mieć wartość dla dalszej analizy
+
+
+unique_values_count = loan_data['collections_12_mths_ex_med'].nunique()
+print(f"Liczba unikalnych wartości w kolumnie 'collections_12_mths_ex_med': {unique_values_count}")
+#Kolumna zawiera wszystki takie same wartosci wiec nie bedzie miała znaczenia dla dalszej analizy
+#wrzucam ją do zbioru kolumn do usuniecia
+columns_to_remove.append('collections_12_mths_ex_med')
+
+loan_data['collections_12_mths_ex_med']
+
+# Analiza kolumny delinq_2yrs
+empty_slots = loan_data['delinq_2yrs'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'delinq_2yrs': {empty_slots}")
+# zawiera istotne dane i brakuje w niej tylko 12 wartości.
+# sprawdzam ile ma unikalnych wartości, aby ocenić czy rzeczywiście bedzie mieć wartość dla dalszej analizy
+
+
+unique_values_count = loan_data['delinq_2yrs'].nunique()
+print(f"Liczba unikalnych wartości w kolumnie 'delinq_2yrs': {unique_values_count}")
+#Kolumna zawiera 12 unikalnych wartości więc wypełniam ją 0 dla brakujących wartości uznaję brak zaległości
+loan_data['delinq_2yrs'].fillna(0, inplace=True)
+
+
+
+# Analiza kolumny delinq_amnt
+empty_slots = loan_data['delinq_amnt'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'delinq_amnt': {empty_slots}")
+# zawiera istotne dane i brakuje w niej tylko 30 wartości.
+# sprawdzam ile ma unikalnych wartości, aby ocenić czy rzeczywiście bedzie mieć wartość dla dalszej analizy
+
+
+unique_values_count = loan_data['delinq_amnt'].nunique()
+print(f"Liczba unikalnych wartości w kolumnie 'delinq_amnt': {unique_values_count}")
+#Kolumna zawiera 12 unikalnych wartości więc wypełniam ją 0 dla brakujących wartości uznaję brak zaległości
+loan_data['delinq_amnt'].fillna(0, inplace=True)
+
+
+# Analiza kolumny desc
+empty_slots = loan_data['desc'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'desc': {empty_slots}")
+# zawiera istotne dane i brakuje w niej az 13296 wartości.
+# sprawdzam ile ma unikalnych wartości, aby ocenić czy rzeczywiście bedzie mieć wartość dla dalszej analizy
+
+
+unique_values_count = loan_data['desc'].nunique()
+print(f"Liczba unikalnych wartości w kolumnie 'desc': {unique_values_count}")
+#Kolumna zawiera 28962 unikalnych wartości więc wypełniam ją Zdaniem "Brak opisu" dla brakujących wartości
+#Chciałbym zobaczyc zaleznosć miedzy długością opisu a udzieleniem pozyczki
+loan_data['desc'].fillna('Brak opisu', inplace=True)
+
+
+
+loan_data['dti']
+# Sprawdzenie liczby brakujących wartości w kolumnie 'dti'
+missing_dti = loan_data['dti'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'dti': {missing_dti}")
+
+#Brakuje tylko 1 wartości
+# Sprawdzenie liczby unikalnych wartości w kolumnie 'application_type'
+unique_values_count = loan_data['dti'].nunique()
+print(f"Liczba unikalnych wartości w kolumnie 'dti': {unique_values_count}")
+#Kolumna zawiera 2894 unikalne wartości wiec wart ja wypełnic medianą
+
+loan_data['dti'].fillna(loan_data['dti'].median(), inplace=True)
+
+
+
+# Kolumny earliest_cr_line oraz issue_d postanowiłem przekształcić na bardziej użyteczne dla dalszej analizy
+# Konwersja kolumny 'earliest_cr_line' na daty
+loan_data['earliest_cr_line'] = pd.to_datetime(loan_data['earliest_cr_line'], format='%b-%Y')
+
+# Konwersja kolumny 'issue_d' na daty
+loan_data['issue_d'] = pd.to_datetime(loan_data['issue_d'], format='%b-%Y')
+
+# Obliczenie liczby lat od otwarcia najstarszej linii kredytowej do momentu złożenia wniosku
+loan_data['credit_history_length'] = (loan_data['issue_d'] - loan_data['earliest_cr_line']).dt.days / 365
+
+
+#Wypełniam puste wartości medianą
+loan_data['credit_history_length'].fillna(loan_data['credit_history_length'].median(), inplace=True)
+
+# Wyświetlenie wyników
+print(loan_data['credit_history_length'])
+
+
+#Teraz sprawdzam kolmnę emp_length
+loan_data['emp_length']
+
+# Sprawdzenie liczby brakujących wartości w kolumnie 'emp_length'
+empty_slots = loan_data['emp_length'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'emp_length': {empty_slots}")
+loan_data['emp_length']
+# Sprawdzenie liczby unikalnych wartości w kolumnie 'emp_length'
+unique_values_count = loan_data['emp_length'].nunique()
+print(f"Liczba unikalnych wartości w kolumnie 'emp_length': {unique_values_count}")
+
+
+# Kolumnę trzeba przekształcić ponieważ zmienne zawierają mieszane typy
+
+
+
+emp_length_mapping = {
+    '10+ years': 10,
+    '9 years': 9,
+    '8 years': 8,
+    '7 years': 7,
+    '6 years': 6,
+    '5 years': 5,
+    '4 years': 4,
+    '3 years': 3,
+    '2 years': 2,
+    '1 year': 1,
+    '< 1 year': 0,
+}
+
+# Zastosowanie mapowania do kolumny 'emp_length'
+loan_data['emp_length'] = loan_data['emp_length'].map(emp_length_mapping)
+
+# Wypełnienie brakujących wartości medianą
+loan_data['emp_length'].fillna(loan_data['emp_length'].median(), inplace=True)
+
+
+#Teraz sprawdzam kolmnę fico_range_high
+loan_data['fico_range_high']
+
+# Sprawdzenie liczby brakujących wartości w kolumnie 'fico_range_high'
+empty_slots = loan_data['fico_range_high'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'fico_range_high': {empty_slots}")
+#Kolumna jest bardzo ważna dla dalszej analizy i ma tylko jedna brakującą wartość
+#Zdecydowałem wypełnić ją medianą
+loan_data['fico_range_high'].fillna(loan_data['fico_range_high'].median(), inplace=True)
+
+
+
+#Teraz sprawdzam kolmnę fico_range_low
+loan_data['fico_range_low']
+
+# Sprawdzenie liczby brakujących wartości w kolumnie 'fico_range_low'
+empty_slots = loan_data['fico_range_low'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'fico_range_low': {empty_slots}")
+#Kolumna jest bardzo ważna dla dalszej analizy i ma tylko jedna brakującą wartość
+#Zdecydowałem wypełnić ją medianą
+loan_data['fico_range_low'].fillna(loan_data['fico_range_low'].median(), inplace=True)
+
+#Teraz sprawdzam kolmnę funded_amnt
+loan_data['funded_amnt']
+
+# Sprawdzenie liczby brakujących wartości w kolumnie 'funded_amnt'
+empty_slots = loan_data['funded_amnt'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'funded_amnt': {empty_slots}")
+#Kolumna jest bardzo ważna dla dalszej analizy i ma tylko jedna brakującą wartość
+#Zdecydowałem wypełnić ją medianą
+loan_data['funded_amnt'].fillna(loan_data['funded_amnt'].median(), inplace=True)
+
+
+
+# Sprawdzam kolumne funded_amnt_inv  i porownuje ją do kolumny funded_amnt
+# Obliczenie różnicy między kwotą pożyczki a kwotą od inwestorów
+loan_data['funded_diff'] = loan_data['funded_amnt'] - loan_data['funded_amnt_inv']
+
+# Wyświetlenie kilku pierwszych różnic
+loan_data[['funded_amnt', 'funded_amnt_inv', 'funded_diff']].head()
+#liczba unikalncych wartosci w kolumnie
+unique_values = loan_data['funded_diff'].nunique()
+print(f"Liczba unikalnych wartości w kolumnie 'funded_diff': {unique_values}")
+#Kolumna  funded_diff zawiera wiele unikalnych wartości więc ją zostawiam razem z kolumnami funded_amnt i funded_amnt_inv
+#Sprawdzam puste miejsca
+empty_slots = loan_data['funded_amnt_inv'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'funded_amnt_inv': {empty_slots}")
+# Brakuje jednej wartości którą wypełniam medianą
+loan_data['funded_amnt_inv'].fillna(loan_data['funded_amnt_inv'].median(), inplace=True)
+
+
+
+
+
+
+
+# Sprawdzam kolumne grade
+loan_data['grade']
+# Ważna kolumna dla dalszej analizy
+# Sprawdzenie liczby brakujących wartości w kolumnie 'grade'
+empty_slots = loan_data['grade'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'grade': {empty_slots}")
+# Brakuje tylko 1 wartości więc wypełniam ją najcześciej wsytępującą wartością.
+loan_data['grade'].fillna(loan_data['grade'].mode()[0], inplace=True)
+
+#Analiza kolumny home_ownership
+loan_data['home_ownership']
+
+# Sprawdzenie liczby brakujących wartości w kolumnie 'home_ownership'
+empty_slots = loan_data['home_ownership'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'home_ownership': {empty_slots}")
+
+# Sprawdzenie unikalnych wartości
+unique_values = loan_data['home_ownership'].unique()
+print(f"Unikalne wartości w kolumnie 'home_ownership': {unique_values}")
+
+# Brakuje tylko jednej wartości, a kolumne uznaję za istotną w dalszej analizie.
+# Wypełniam najczesciej występującą wartością
+loan_data['home_ownership'].fillna(loan_data['home_ownership'].mode()[0], inplace=True)
+
+
+#Analiza kolumny initial_list_status
+loan_data['initial_list_status']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['initial_list_status'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'initial_list_status': {empty_slots}")
+#Sprawdzenie unikalnych wartosci
+unique_values = loan_data['initial_list_status'].unique()
+print(f"Unikalne wartości w kolumnie 'initial_list_status': {unique_values}")
+#Wszystkie wartości są nieznane lub pokazują tylko jedną zmienną więc wyrzucam kolumnę do biblioteki columns_to_remove
+columns_to_remove.append('initial_list_status')
+#Sprawdzam czy dodano
+print(columns_to_remove)
+
+#Analiza kolumny inq_last_6mths
+loan_data['inq_last_6mths']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['inq_last_6mths'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'inq_last_6mths': {empty_slots}")
+#Sprawdzam unikalne wartości
+unique_values = loan_data['inq_last_6mths'].unique()
+print(f"Unikalne wartości w kolumnie 'inq_last_6mths': {unique_values}")
+#Kolumna jest istotna ma tylko 30 brakujących wartości i wiele unikalnych wartości . Wypełniam je medianą
+loan_data['inq_last_6mths'].fillna(loan_data['inq_last_6mths'].median(), inplace=True)
+
+
+#Analiza kolumny installment
+loan_data['installment']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['installment'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'installment': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['installment'].unique()
+print(f"Unikalne wartości w kolumnie 'installment': {unique_values}")
+# Kolumn jest istotna i brakuje  tylko jednej wartości więc wypełniam średnią
+loan_data['installment'].fillna(loan_data['installment'].mean(), inplace=True)
+
+
+#Analiza kolumny int_rate
+loan_data['int_rate']
+#Kolumna jest istotna ale trzeba pozbyć się znaku % przed dalszą analizą
+# Usunięcie znaku procentu i konwersja na wartości numeryczne
+# Konwersja wszystkich wartości w kolumnie 'int_rate' na stringi, a następnie usunięcie znaku procentu
+loan_data['int_rate'] = loan_data['int_rate'].astype(str).str.rstrip('%').astype(float)
+
+
+
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['int_rate'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'int_rate': {empty_slots}")
+#Sprawdzenie unikalnych wartości
+unique_values = loan_data['int_rate'].unique()
+print(f"Unikalne wartości w kolumnie 'int_rate': {unique_values}")
+# Pozostałą jedną pustą wartość wypełniam śwrednią
+loan_data['int_rate'].fillna(loan_data['int_rate'].mean(), inplace=True)
+
+
+#Analiza kolumny issue_d
+
+loan_data['issue_d']
+loan_data['issue_d'].dtype
+# Kolumna zawiera typ object więc konwertuję ją na typ daty
+loan_data['issue_d'] = pd.to_datetime(loan_data['issue_d'], format='%b-%Y')
+loan_data['issue_d'].dtype
+
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['issue_d'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'issue_d': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['issue_d'].unique()
+print(f"Unikalne wartości w kolumnie 'issue_d': {unique_values}")
+# Brakuje tylko jednej wartości, którą wypełniam najczesciej występującą datą
+loan_data['issue_d'].fillna(loan_data['issue_d'].mode()[0], inplace=True)
+
+#Kolejne kolumny last_credit_pull_d, last_fico_range_high, last_fico_range_low, last_pymnt_amnt, last_pymnt_d
+# odnoszą się do przyszłości więc wrzucam je do biblioteki future info columns
+future_info_columns.append('last_credit_pull_d')
+future_info_columns.append('last_fico_range_high')
+future_info_columns.append('last_fico_range_low')
+future_info_columns.append('last_pymnt_amnt')
+future_info_columns.append('last_pymnt_d')
+#Sprawdzam czy dodano
+print(future_info_columns)
+
+
+
+
+# Analiza kolumny loan_amnt
+loan_data['loan_amnt']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['loan_amnt'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'loan_amnt': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['loan_amnt'].unique()
+print(f"Unikalne wartości w kolumnie 'loan_amnt': {unique_values}")
+#Kolumna bardzo ważna dla tworzenia przyszłego modelu. Brakuje tylko jednej wartości, wypełniam ją medianą
+loan_data['loan_amnt'].fillna(loan_data['loan_amnt'].median(), inplace=True)
+
+loan_data['mths_since_last_delinq']
+#Analiza kolumy mort_acc
+loan_data['mths_since_last_delinq']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['mths_since_last_delinq'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'mths_since_last_delinq': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['mths_since_last_delinq'].unique()
+print(f"Unikalne wartości w kolumnie 'mths_since_last_delinq': {unique_values}")
+#Kolumna zawiera informacje dotyczące liczby miesięcy od ostatniej zaległości pożyczkobiorcy. Może być istotna
+# dla oceny ryzyka . Puste wartości wypełniam zerem , uznając brak informacji za brak zaległości.
+loan_data['mths_since_last_delinq'].fillna(0, inplace=True)
+
+#Analiza kolumny mths_since_last_record
+# kolumna dotyczy liczby miesięcy od ostatniego wpisu w publicznym rejestrze.
+
+loan_data['mths_since_last_record']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['mths_since_last_record'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'mths_since_last_record': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['mths_since_last_record'].unique()
+print(f"Unikalne wartości w kolumnie 'mths_since_last_record': {unique_values}")
+# Bardzo dużo pustych wartości jednak postanowiłem wypełnić je zerem. Uznaję że brak wartości oznacza brak wpisu w publicznym rejestrze.
+loan_data['mths_since_last_record'].fillna(0, inplace=True)
+
+#Analiza kolumny next_pymnt_d
+#Kolumna dotyczy przyszłości więc wrzucam ją na liste future_info_columns
+future_info_columns.append('next_pymnt_d')
+#Sprawdzam czy dodano
+print(future_info_columns)
+
+#Analiza kolumny open_acc
+loan_data['open_acc']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['open_acc'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'open_acc': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['open_acc'].unique()
+print(f"Unikalne wartości w kolumnie 'open_acc': {unique_values}")
+# Kolumna jest już uzupełniona i może być uzyteczna w ocenie ryzyka kredytowego. Zostawiam ją jak jest.
+
+
+# KOlumna out_prncp_inv odnosi się do przyszłych wydarzeń więc dodaję ją do listy fure_info_columns
+future_info_columns.append('out_prncp_inv')
+#Sprawdzam czy dodano
+print(future_info_columns)
+
+#Kolumna payment_plan_start_date równierz odnos się do przyszłości więc wrzucam ją do future inf columns
+future_info_columns.append('payment_plan_start_date')
+#Sprawdzam czy dodano
+print(future_info_columns)
+
+#Kolumnę policy_code usuwam poniewarz ta informacja nie wnosi istotnych danych dla analizy.Kod polityki; 1 dla publicznie dostępnych produktów, 2 dla produktów prywatnych.
+
+columns_to_remove.append('policy_code')
+#Sprawdzam czy dodano
+print(columns_to_remove)
+
+#Analiza kolumny pub_rec
+
+
+loan_data['pub_rec']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['pub_rec'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'pub_rec': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['pub_rec'].unique()
+print(f"Unikalne wartości w kolumnie 'pub_rec': {unique_values}")
+# Kolumnę zostawiam jak jest może byc ważnym wskaznikiem oceny historii kredytowej
+
+#Analiza kolumny purpose
+loan_data['purpose']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['purpose'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'purpose': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['purpose'].unique()
+print(f"Unikalne wartości w kolumnie 'purpose': {unique_values}")
+#Kolumna nie ma pustych wartości i cel pożyczki może być istotnym czynnikiem ryzyka. Zostawiam bez zmian.
+
+# Kolumna pymnt_plan dotyczy przyszłości więc doję ją na liste future info
+future_info_columns.append('pymnt_plan')
+#Sprawdzam czy dodano
+print(future_info_columns)
+
+# Kolumna recoveries dotyczy przyszłości więc doję ją na liste future info
+future_info_columns.append('recoveries')
+#Sprawdzam czy dodano
+print(future_info_columns)
+
+#Analiza koumny revol_bal
+loan_data['revol_bal']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['revol_bal'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'revol_bal': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['revol_bal'].unique()
+print(f"Unikalne wartości w kolumnie 'revol_bal': {unique_values}")
+#Istotny wskaźnik ryzyka związanego z zadłużeniem. Brak pustych wartości. zostawiam tak jak jest
+
+
+#Analiza kolumny revol_util
+loan_data['revol_util']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['revol_util'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'revol_util': {empty_slots}")
+
+
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['revol_util'].unique()
+print(f"Unikalne wartości w kolumnie 'revol_util': {unique_values}")
+# Usuwam znak %
+loan_data['revol_util'] = loan_data['revol_util'].str.rstrip('%')
+# Konwersja na typ float
+loan_data['revol_util'] = loan_data['revol_util'].astype(float)
+# Wypełniam medianą puste wartości
+loan_data['revol_util'].fillna(loan_data['revol_util'].median(), inplace=True)
+
+
+#  Kolumny settlement_amount, settlement_date, settlement_percentage, settlement_status, settlement_term  odpowiadają za
+# wydarzenia z przyszłości więc wstawiam je do future info columns
+future_info_columns.extend(['settlement_amount', 'settlement_date', 'settlement_percentage', 'settlement_status', 'settlement_term'])
+print(future_info_columns)
+
+
+
+# Wrzucam kolumne title do listy columns to remove poniewarz nie wnosi zadnej wartosci dla dalszej analizy
+columns_to_remove.append('title')
+print(columns_to_remove)
+
+
+#Analiza kolumny sub_grade
+loan_data['sub_grade']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['sub_grade'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'sub_grade': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['sub_grade'].unique()
+print(f"Unikalne wartości w kolumnie 'sub_grade': {unique_values}")
+#podklasa kredytu może być istotna dla oceny ryzyka kredytowego.
+#Brakuje tylko jednej wartości, którą uzupełniam naczęściej pojawiającą się wartością
+loan_data['sub_grade'].fillna(loan_data['sub_grade'].mode()[0], inplace=True)
+
+
+#Analiza kolumny  tax_liens
+loan_data['tax_liens']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['tax_liens'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'tax_liens': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['tax_liens'].unique()
+print(f"Unikalne wartości w kolumnie 'tax_liens': {unique_values}")
+#Kolumna zawiera wartości 0,1 lub nan . Postanowiłem wypełnić ją zerem uznając brak informacji brakiem obciążeń podatkowych.
+loan_data['tax_liens'].fillna(0, inplace=True)
+
+#Analiza kolumny term
+loan_data['term']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['term'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'term': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['term'].unique()
+print(f"Unikalne wartości w kolumnie 'term': {unique_values}")
+#Brakuje tylko jednej wartości a unikalne wartości to 36 lub 60 wiec wypełniam ją najczesciej wystepujaca wartością
+loan_data['term'].fillna(loan_data['term'].mode()[0], inplace=True)
+# Usuwam zbędne znaki i przekonwertuję na liczbę całkowitą
+loan_data['term'] = loan_data['term'].str.strip().str.replace(' months', '').astype(float)
+
+
+
+
+#Analiza kolumny total_acc
+loan_data['total_acc']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['total_acc'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'total_acc': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['total_acc'].unique()
+print(f"Unikalne wartości w kolumnie 'total_acc': {unique_values}")
+# Unikalne wartości w tej kolumnie to liczby od 1 do ponad 90 a takze 30 wartosci nan
+#Uznałem że wypełniam je zerem bo skoro w żadnej z ponad 42000 wierszy nie pojawiła się wartośc 0 to może oznaczać własnie brak historii kredytowej.
+loan_data['total_acc'].fillna(0, inplace=True)
+
+
+
+# Teraz biorę pod lupę kolejne kolumny.
+
+# Usuwam  kolumny które odnoszą sie do przyszłości i zawierają informacje niedostepne w momencie składania wniosku
+future_info_columns.extend(['total_pymnt', 'total_pymnt_inv', 'total_rec_int', 'total_rec_late_fee', 'total_rec_prncp'])
+print(columns_to_remove)
+#Usuwam  kolumne url poniewarz nie wnosi ona zadnej wartości dla dalszych analiz
+columns_to_remove.append('url')
+print(columns_to_remove)
+
+
+#usuwam kolumnę zip_code ze względu na niską przydatność w dalszej analizie. Niepotrzebny mi kod pocztowy.
+columns_to_remove.append('zip_code')
+print(columns_to_remove)
+
+
+#Analiza kolumny verification_status
+loan_data['verification_status']
+#Sprawdzenie pustych wartości
+empty_slots = loan_data['verification_status'].isnull().sum()
+print(f"Liczba brakujących wartości w kolumnie 'verification_status': {empty_slots}")
+#Sprawdzanie unikalnych wartości
+unique_values = loan_data['verification_status'].unique()
+print(f"Unikalne wartości w kolumnie 'verification_status': {unique_values}")
+#Brakuje tylko jednej wartości. Postanowiłem wypełnić ja dominantą
+loan_data['verification_status'].fillna(loan_data['verification_status'].mode()[0], inplace=True)
+
+# Połączenie wszystkich list kolumn do usunięcia
+columns_to_drop = set(future_info_columns + columns_to_remove )
+
+# Usunięcie kolumn z DataFrame loan_data
+loan_data.drop(columns=columns_to_drop, inplace=True, errors='ignore')
+
+# Sprawdzenie, czy kolumny zostały usunięte
+print("Pozostałe kolumny po usunięciu:", loan_data.columns)
+print(loan_data.shape)
+
+# Usunięcie kolumn z samymi pustymi wartościami
+loan_data.dropna(axis=1, how='all', inplace=True)
+
+# Wyświetlenie pozostałych kolumn i kształtu DataFrame
+print("Pozostałe kolumny po usunięciu:", loan_data.columns)
+print("Kształt DataFrame po usunięciu:", loan_data.shape)
+
+
+
+
+#Zerknięcie czy wszystkie columny są wypełnione
+# Wybranie kolumn do wizualizacji
+loan_data
+
+# Wizualizacja braków danych
+plt.figure(figsize=(10, 6))
+msno.bar(loan_data, color="skyblue")
+plt.title("Missing Data in Selected Columns")
+plt.xlabel("Columns")
+plt.ylabel("Number of Rows Missing")
+plt.show()
+
+
+
+# Sprawdzam reszte kolumn na których widać że brakuje kilku wartości
+loan_data['purpose']
+loan_data['purpose'].isnull().sum()
+#Brak tylko jednej wartości uzupełniam dominantą
+loan_data['purpose'].fillna(loan_data['purpose'].mode()[0], inplace=True)
+
+loan_data['earliest_cr_line']
+loan_data['earliest_cr_line'].isnull().sum()
+loan_data['earliest_cr_line'].dtype
+#Brakuje tylko 30 wierszy na ponad 42 000, wypełniam medianą.  To pozwala na neutralne uzupełnienie braków bez sztucznego wydłużania lub skracania historii kredytowej. Tak czy inaczej wpływ uzupełnionych danych bedzie minimalny.
+
+median_date = loan_data['earliest_cr_line'].dropna().median()
+loan_data['earliest_cr_line'].fillna(median_date, inplace=True)
+
+loan_data['open_acc']
+loan_data['open_acc'].isnull().sum()
+loan_data['open_acc'].unique()
+#Brak wartości uzupełniam 0 uznając że brak informacji to brak otwartych kont
+loan_data['open_acc'].fillna(0, inplace=True)
+
+loan_data['pub_rec']
+loan_data['pub_rec'].isnull().sum()
+loan_data['pub_rec'].unique()
+#Brak wartości uzupełniam 0 uznając że brak informacji to brak wpisów w publicznym rejestrze
+loan_data['pub_rec'].fillna(0, inplace=True)
+
+
+
+loan_data['pub_rec_bankruptcies']
+#liczba braków wartości
+
+loan_data['pub_rec_bankruptcies'].isnull().sum()
+print(loan_data['pub_rec_bankruptcies'].isnull().sum())
+
+loan_data['pub_rec_bankruptcies'].unique()
+# Brakujące wartości wypełniam dominantą
+loan_data['pub_rec_bankruptcies'].fillna(loan_data['pub_rec_bankruptcies'].mode()[0], inplace=True)
+
+
+#Zerknięcie czy wszystkie columny są wypełnione
+loan_data
+
+# Wizualizacja braków danych
+plt.figure(figsize=(10, 6))
+msno.bar(loan_data, color="skyblue")
+plt.title("Missing Data in Selected Columns")
+plt.xlabel("Columns")
+plt.ylabel("Number of Rows Missing")
+plt.show()
+
+#####Wygląda na to że wszystkie kolumny które zostały nie zawierają już pustych wartości, oraz są przygotowane do tworzenia modelów predykcyjnych. Zapisuję więc plik.
+
+# Zapisanie nowego DataFrame do pliku CSV
+loan_data.to_csv('oczyszczone_dane.csv', index=False)
+loan_data.shape
+
+
+
+
+###Pozostałe kolumny będę wykorzystywał do dalszej analizy.
+##### Moje wnioski z tej części projektu są takie że na pewno nastepnym razem usunę od razu, kolumny które są całkiem  puste jednym kodem. Jednak jako że robię taki projekt pierwszy raz wolałem się przyjrzeć każdej kolumnie dokładnie.
+
+# Część 2 projektu
+
+##EDA, czyli obszerna eksploracja danych (100pkt) Opisz wnioski płynące z każdego wykresu, swoje hipotezy poprzyj testami statystycznymi takimi jak np. t-test lub Chi-square. Dodatkowo odpowiedz na poniższe pytania:
+
+
+###W jaki sposób wynik FICO wiąże się z prawdopodobieństwem spłacenia pożyczki przez pożyczkobiorcę?
+
+
+# NAjpierw wczytanie danych.
+oczyszczone_dane=pd.read_csv('oczyszczone_dane.csv')
+
+# Obliczenie średniego wyniku FICO
+oczyszczone_dane['fico_score'] = (oczyszczone_dane['fico_range_low'] + oczyszczone_dane['fico_range_high']) / 2
+
+
+# Wizualizacja rozkładu wyników FICO
+plt.figure(figsize=(14, 7))
+sns.histplot(data=oczyszczone_dane, x='fico_score', bins=30, kde=True)
+plt.title('Rozkład wyników FICO')
+plt.xlabel('Wynik FICO (średnia)')
+plt.ylabel('Liczba pożyczkobiorców')
+plt.show()
+
+
+# Stworzymy sobie grupy na podstawie wyników Fico score
+
+# Funkcja do przypisania grup ryzyka
+def przypisz_grupe_fico(fico):
+    if fico >= 800:
+        return 'Bardzo wysokie (800-850)'
+    elif fico >= 740:
+        return 'Wysokie (740-799)'
+    elif fico >= 670:
+        return 'Średnie (670-739)'
+    elif fico >= 580:
+        return 'Niskie (580-669)'
+    else:
+        return 'Bardzo niskie (poniżej 580)'
+
+# Przypisanie grup ryzyka
+oczyszczone_dane['grupa_ryzyka'] = oczyszczone_dane['fico_score'].apply(przypisz_grupe_fico)
+
+# Zliczenie liczby pożyczkobiorców w każdej grupie
+grupy_ryzyka_counts = oczyszczone_dane['grupa_ryzyka'].value_counts()
+
+# Stworzenie wykresu słupkowego
+plt.figure(figsize=(12, 6))
+sns.barplot(x=grupy_ryzyka_counts.index, y=grupy_ryzyka_counts.values, palette='viridis')
+plt.title('Liczba pożyczkobiorców w grupach ryzyka na podstawie wyniku FICO')
+plt.xlabel('Grupa ryzyka')
+plt.ylabel('Liczba pożyczkobiorców')
+plt.xticks(rotation=45)
+plt.show()
+
+
+
+
+# Tworzenie wykresu Pudełkowego zależności grup statusu pożyczki i wyniku FICO Score
+plt.figure(figsize=(14, 7))
+sns.boxplot(x='loan_status', y='fico_score', data=oczyszczone_dane, palette='muted')
+plt.title('Korelacja między wynikiem FICO a statusem pożyczki')
+plt.xlabel('Status pożyczki')
+plt.ylabel('Wynik FICO')
+plt.show()
+
+# Kodowanie statusu pożyczki
+oczyszczone_dane['loan_status_encoded'] = oczyszczone_dane['loan_status'].map({'Fully Paid': 1, 'Charged Off': 0})
+
+
+
+
+
+
+### Na pierwszym i drugim wykresie widzimy ilu klientów nalezy do poszczególnych grup ryzyka. Widać że zdecydowana większość klientów ma wysoki i średni wynik FICO Score. Na trzecim wykresie możemy zauważyć że żeczywiście klienci z wysokim FICO Score częsciej spłacali swoje pożyczki, niż klienci z niskim wynikiem Fico Score.
+
+# Przeprowadzenie t-testu dla długości historii kredytowej
+fully_paid = oczyszczone_dane[oczyszczone_dane['loan_status'] == 'Fully Paid']['credit_history_length']
+charged_off = oczyszczone_dane[oczyszczone_dane['loan_status'] == 'Charged Off']['credit_history_length']
+from scipy import stats
+
+# Przeprowadzenie t-testu
+t_stat, p_value = stats.ttest_ind(fully_paid, charged_off)
+print(f"T-statystyka: {t_stat}, Wartość p: {p_value}")
+
+
+######Przy tak niskiej wartości p (znacznie poniżej typowego progu istotności 0.05, a nawet 0.001), możemy odrzucić hipotezę zerową. Oznacza to, że istnieje statystycznie istotna różnica między średnimi wynikami FICO dla pożyczek, które zostały spłacone a tymi, które zostały niespłacone. Wynik dla t- statystyki również wskazuje że średnie wyniki FICO dla pożyczek spłaconych i niespłaconych są znacznie różne.
+Wnioski:
+Różnice w spłacie: Wysoka t-statystyka i niska wartość p wskazują, że wynik FICO ma znaczący wpływ na prawdopodobieństwo spłaty pożyczki. Osoby, które spłacają swoje pożyczki, mają wyższe wyniki FICO w porównaniu do tych, którzy mają problemy ze spłatą.
+Kredytowanie: Wyniki te potwierdzają, że wyższy wynik FICO jest związany z niższym ryzykiem kredytowym i większym prawdopodobieństwem spłaty pożyczki.
+
+
+
+
+##W jaki sposób wiek kredytowy wiąże się z prawdopodobieństwem niewykonania zobowiązania i czy ryzyko to jest niezależne lub związane z wynikiem FICO
+
+
+# Wykresy porównawcze
+# Tworzenie wykresów pudełkowych i skrzypcowych dla długości historii kredytowej oraz wyników FICO w zależności od statusu pożyczki:
+# Wykres pudełkowy dla długości historii kredytowej
+plt.figure(figsize=(12, 6))
+sns.boxplot(x='loan_status', y='credit_history_length', data=oczyszczone_dane, palette='muted')
+plt.title('Długość historii kredytowej w zależności od statusu pożyczki')
+plt.xlabel('Status pożyczki')
+plt.ylabel('Długość historii kredytowej (w latach)')
+plt.show()
+
+# Wykres skrzypcowy dla długości historii kredytowej
+plt.figure(figsize=(12, 6))
+sns.violinplot(x='loan_status', y='credit_history_length', data=oczyszczone_dane, palette='muted')
+plt.title('Długość historii kredytowej w zależności od statusu pożyczki')
+plt.xlabel('Status pożyczki')
+plt.ylabel('Długość historii kredytowej (w latach)')
+plt.show()
+
+
+# Obliczenie średniej długości historii kredytowej
+sredni_wiek = oczyszczone_dane.groupby('loan_status')['credit_history_length'].mean()
+print("Średni wiek kredytowy:")
+print(sredni_wiek)
+
+# Obliczenie średniego wyniku FICO
+sredni_fico = oczyszczone_dane.groupby('loan_status')['fico_score'].mean()
+print("\nŚredni wynik FICO:")
+print(sredni_fico)
+
+
+
+
+####Sprawdzam testy statystyczne
+
+
+# Wiek kredytowy
+fully_paid_age = oczyszczone_dane[oczyszczone_dane['loan_status'] == 'Fully Paid']['credit_history_length']
+charged_off_age = oczyszczone_dane[oczyszczone_dane['loan_status'] == 'Charged Off']['credit_history_length']
+
+t_stat_age, p_value_age = stats.ttest_ind(fully_paid_age, charged_off_age)
+print(f"T-statystyka dla wieku kredytowego: {t_stat_age}, Wartość p: {p_value_age}")
+
+
+######Interpretacja wyników
+T-statystyka:
+
+Wartość 4.55 oznacza, że istnieje istotna różnica między średnią długością historii kredytowej osób, które spłaciły swoje pożyczki (Fully Paid), a tymi, które ich nie spłaciły (Charged Off). Wyższa wartość t-statystyki wskazuje na bardziej znaczące różnice.
+Wartość p:
+
+Wartość p wynosząca 5.47 x 10^-6 jest bardzo niska. To sugeruje, że różnice w długości historii kredytowej między tymi dwiema grupami są statystycznie istotne. Zwykle, jeśli wartość p jest mniejsza niż 0.05 (lub 0.01, w bardziej rygorystycznych testach), to odrzucamy hipotezę zerową, co w tym przypadku oznacza, że długość historii kredytowej rzeczywiście różni się w zależności od statusu pożyczki.
+Wnioski
+Związek z niewykonaniem zobowiązania: Wyższa średnia długość historii kredytowej w grupie Fully Paid w porównaniu do grupy Charged Off sugeruje, że osoby z dłuższą historią kredytową mają większe prawdopodobieństwo spłaty swoich pożyczek.
+Wiek kredytowy jako czynnik ryzyka: Długość historii kredytowej może być uważana za czynnik ryzyka w ocenie zdolności kredytowej. Osoby z krótszym okresem kredytowym mogą być postrzegane jako bardziej ryzykowne dla kredytodawców.
+
+
+#Stosuję  Regresję Logistyczną w celu,  aby zobaczyć, jak długość historii kredytowej i wynik FICO wpływają na prawdopodobieństwo niewykonania zobowiązania.
+# Przygotowanie danych do regresji
+X = oczyszczone_dane[['credit_history_length', 'fico_score']]
+y = oczyszczone_dane['loan_status_encoded']
+
+import statsmodels.api as sm  # Import statsmodels do analizy regresji
+
+# Dodanie stałej do modelu
+X = sm.add_constant(X)
+
+# Regresja logistyczna
+model = sm.Logit(y, X)
+result = model.fit()
+
+# Wyświetlenie wyników
+print(result.summary())
+
+
+#####Kluczowe elementy wyników
+Statystyki ogólne:
+
+Liczba obserwacji (No. Observations): 42,536, co oznacza, że model został oparty na tej liczbie pożyczkobiorców.
+Log-Likelihood: -17,610. Im wyższa wartość log-likelihood, tym lepiej model pasuje do danych.
+Pseudo R-squared: 0.02533. To niski wynik, co sugeruje, że model wyjaśnia niewielką część zmienności w danych. W kontekście regresji logistycznej nie można porównywać Pseudo R-squared bezpośrednio z R-squared w regresji liniowej.
+Wartości współczynników (coef):
+
+const: -6.9258. To współczynnik dla stałej w modelu. Wartość ta jest negatywna, co sugeruje, że, przy braku wpływu innych zmiennych, prawdopodobieństwo Charged Off jest niskie.
+credit_history_length: -0.0053. Wartość ta jest ujemna, co wskazuje, że z każdą dodatkową jednostką długości historii kredytowej prawdopodobieństwo niewykonania zobowiązania nieznacznie maleje. To oznacza, że dłuższa historia kredytowa wiąże się z mniejszym ryzykiem niewykonania zobowiązania.
+fico_score: 0.0123. Wartość dodatnia sugeruje, że wyższy wynik FICO zwiększa prawdopodobieństwo spłaty pożyczki. Wzrost o 1 punkt w wyniku FICO wiąże się z około 1.23% wzrostem logitowego prawdopodobieństwa, że pożyczka będzie spłacona.
+Statystyki istotności (P>|z|):
+
+Wszystkie wartości p dla współczynników (const, credit_history_length, fico_score) są mniejsze niż 0.05, co sugeruje, że wszystkie te zmienne są statystycznie istotne w przewidywaniu wyniku (prawdopodobieństwa niewykonania zobowiązania).
+Wnioski
+Długość historii kredytowej: Istotnie wpływa na ryzyko niewykonania zobowiązania. Dłuższa historia kredytowa wiąże się z mniejszym ryzykiem, co jest zgodne z intuicją, że bardziej doświadczeni kredytobiorcy mają tendencję do lepszego zarządzania swoimi zobowiązaniami.
+
+Wynik FICO: Wyższe wyniki FICO znacząco zwiększają prawdopodobieństwo spłaty pożyczki. To jest zgodne z powszechnie znanym stwierdzeniem, że wyższy wynik FICO oznacza lepszą zdolność kredytową.
+
+Modelowanie ryzyka: Choć model dostarcza użytecznych informacji, niski Pseudo R-squared sugeruje, że istnieją inne czynniki, które mogą wpływać na niewykonanie zobowiązania i które nie zostały uwzględnione w tym modelu.
+
+
+
+
+
+##W jaki sposób status kredytu hipotecznego na dom wiąże się z prawdopodobieństwem niewypłacalności?
+
+
+```
+# Sformatowano jako kod
+```
+
+
+
+# Wizualizacje
+import statsmodels.api as sm
+from scipy import stats
+
+
+# Wykres pudełkowy długości historii kredytowej w zależności od statusu własności
+plt.figure(figsize=(12, 6))
+sns.boxplot(x='home_ownership', y='credit_history_length', data=oczyszczone_dane, palette='muted')
+plt.title('Długość historii kredytowej w zależności od statusu własności')
+plt.xlabel('Status własności')
+plt.ylabel('Długość historii kredytowej (w latach)')
+plt.show()
+
+# Wykres pudełkowy wyników FICO w zależności od statusu własności
+plt.figure(figsize= (12, 6))
+sns.boxplot(x='home_ownership', y='fico_score', data=oczyszczone_dane, palette='muted')
+plt.title('Wynik FICO w zależności od statusu własności')
+plt.xlabel('Status własności')
+plt.ylabel('Wynik FICO')
+plt.show()
+
+# Wykres słupkowy pokazujący wpływ statusu własności na niewypłacalność
+plt.figure(figsize=(12, 6))
+sns.countplot(data=oczyszczone_dane, x='home_ownership', hue='loan_status', palette='muted')
+plt.title('Wpływ statusu własności na niewypłacalność')
+plt.xlabel('Status własności')
+plt.ylabel('Liczba pożyczkobiorców')
+plt.legend(title='Status pożyczki', labels=['Spłacona', 'Niespłacona'])
+plt.show()
+
+
+# Obliczenie liczby pożyczkobiorców w każdej kategorii
+contingency_table = pd.crosstab(oczyszczone_dane['home_ownership'], oczyszczone_dane['loan_status'])
+
+# Obliczenie procentów
+percentage_table = (contingency_table.div(contingency_table.sum(axis=1), axis=0) * 100).reset_index()
+
+# Obliczenie liczby pożyczkobiorców w każdej kategorii
+contingency_table = pd.crosstab(oczyszczone_dane['home_ownership'], oczyszczone_dane['loan_status'])
+
+# Obliczenie procentów
+percentage_table = (contingency_table.div(contingency_table.sum(axis=1), axis=0) * 100).reset_index()
+
+# Wykres słupkowy procentów
+percentage_table = percentage_table.melt(id_vars='home_ownership', value_vars=['Fully Paid', 'Charged Off'], var_name='loan_status', value_name='Percentage')
+
+plt.figure(figsize=(12, 6))
+barplot = sns.barplot(data=percentage_table, x='home_ownership', y='Percentage', hue='loan_status', palette='muted')
+plt.title('Wpływ statusu własności na niewypłacalność (w %)')
+plt.xlabel('Status własności')
+plt.ylabel('Procent pożyczkobiorców')
+plt.legend(title='Status pożyczki', labels=['Spłacona', 'Niespłacona'])
+plt.ylim(0, 100)  # Ustawiamy oś Y na 0-100%
+
+# Dodanie procentów na słupkach
+for p in barplot.patches:
+    barplot.annotate(f'{p.get_height():.1f}%', (p.get_x() + p.get_width() / 2., p.get_height()),
+                     ha='center', va='bottom', fontsize=10, color='black')
+
+
+
+
+
+
+
+# Testy statystyczne
+import pandas as pd
+import statsmodels.api as sm
+from scipy import stats
+
+# Obliczenie średniego wyniku FICO
+oczyszczone_dane['fico_score'] = (oczyszczone_dane['fico_range_low'] + oczyszczone_dane['fico_range_high']) / 2
+
+
+
+
+# ANOVA
+f_stat, p_value = stats.f_oneway(
+    oczyszczone_dane[oczyszczone_dane['home_ownership'] == 'RENT']['fico_score'],
+    oczyszczone_dane[oczyszczone_dane['home_ownership'] == 'OWN']['fico_score'],
+    oczyszczone_dane[oczyszczone_dane['home_ownership'] == 'MORTGAGE']['fico_score']
+)
+
+
+print(f"F-statystyka: {f_stat}, Wartość p: {p_value}")
+
+# Tabela kontyngencji
+contingency_table = pd.crosstab(oczyszczone_dane['home_ownership'], oczyszczone_dane['loan_status'])
+
+# Test Chi-kwadrat
+chi2, p, dof, expected = stats.chi2_contingency(contingency_table)
+
+# Wyświetlenie wyników
+print(f"Chi-squared: {chi2}, p-value: {p}, degrees of freedom: {dof}")
+print("Expected frequencies:")
+print(expected)
+
+
+
+
+
+####Z wykresów wynika że osoby posiadające kredyty hipoteczne mają zazwyczaj dłuższe historie kredytowe i mają zazwyczaj najwięcej Fico score.
+
+ Wykres pokazuje, że właściciele domów i posiadający kredyty hipoteczne mają wyższe wyniki FICO w porównaniu do wynajmujących, może to sugerować, że posiadanie własności związane jest z lepszym zarządzaniem finansami.
+
+Osoby posiadające kredyt hipoteczny mają wyniki FICO zbliżone do właścicieli domów, co może wskazywać na to, że regularne spłacanie kredytu hipotecznego przyczynia się do budowania pozytywnej historii kredytowej.
+
+Procent niewypłacalności w grupach RENT, OWN i MORTGAGE jest zbliżony, sugeruje to, że ryzyko kredytowe jest jednolite niezależnie od statusu własności. To może wskazywać, że inne czynniki, takie jak zdolność kredytowa czy stabilność finansowa, są bardziej kluczowe niż sam status własności.
+
+Interpretacja wyników
+Chi-squared:
+
+Wartość Chi-kwadrat wynosząca 24.96 wskazuje na istotną różnicę między zaobserwowanymi a oczekiwanymi wartościami w tabeli kontyngencji. Wyższa wartość Chi-kwadrat sugeruje większą różnicę między grupami.
+Wartość p:
+
+Wartość p wynosząca 1.58 x 10^-5 jest znacznie mniejsza niż typowy próg istotności 0.05. To oznacza, że istnieje statystycznie istotna różnica w rozkładzie statusów niewypłacalności w zależności od statusu własności. Odrzucamy hipotezę zerową, co sugeruje, że status własności ma wpływ na prawdopodobieństwo niewypłacalności.
+Degrees of freedom (df):
+
+Oczekiwane częstotliwości:
+
+Oczekiwane wartości pokazują, ile przypadków byśmy się spodziewali w każdej komórce tabeli, gdyby nie było związku między statusami. Można zauważyć, że dla kategorii RENT oczekiwano około 2866 spłaconych pożyczek i 16093 niespłaconych. Wartości te różnią się znacznie od obserwowanych wartości, co sugeruje, że status własności ma wpływ na wyniki niewypłacalności.
+
+Z analizy wynika, że osoby, które mają kredyt hipoteczny ("Mortgage"), mogą mieć wyższe ryzyko niewypłacalności w porównaniu do tych, którzy posiadają własne mieszkania ("Own") lub wynajmują ("Rent").
+Można zauważyć, że niewielki procent osób z kredytem hipotecznym może mieć trudności z regulowaniem swoich zobowiązań, co może być skutkiem wyższych kosztów związanych z kredytami hipotecznymi w porównaniu do wynajmu.
+
+
+
+
+##W jaki sposób roczny dochód wiąże się z prawdopodobieństwem niewykonania zobowiązania?
+\
+
+> Dodaj cytat blokowy
+
+
+
+#Dla łatwiejszej wizualizacji danych podzielę klientów na grupy .
+
+# Definiowanie funkcji do przypisywania grup dochodowych
+def classify_income(income):
+    if income < 30000:
+        return 'Niski'
+    elif 30000 <= income < 60000:
+        return 'Średni'
+    elif 60000 <= income < 100000:
+        return 'Wysoki'
+    else:
+        return 'Bardzo wysoki'
+
+# Tworzenie nowej kolumny z grupami dochodowymi
+oczyszczone_dane['income_group'] = oczyszczone_dane['annual_inc'].apply(classify_income)
+
+# Sprawdzenie utworzonej kolumny
+print(oczyszczone_dane[['annual_inc', 'income_group']].head())
+
+
+# Wykres słupkowy z wykorzystaniem grup dochodowych
+plt.figure(figsize=(12, 6))
+sns.countplot(x='income_group', hue='loan_status', data=oczyszczone_dane)
+plt.title('Liczba pożyczkobiorców w zależności od grupy dochodowej i statusu spłaty')
+plt.xlabel('Grupa dochodowa')
+plt.ylabel('Liczba pożyczkobiorców')
+plt.legend(title='Status spłaty')
+plt.show()
+
+# Tworzenie tabeli z proporcjami
+proportion_data = oczyszczone_dane.groupby('income_group')['loan_status'].value_counts(normalize=True).unstack()
+
+proportion_data.plot(kind='bar', stacked=True, figsize=(12, 6))
+plt.title('Proporcje statusu spłaty w zależności od grupy dochodowej')
+plt.xlabel('Grupa dochodowa')
+plt.ylabel('Proporcja')
+plt.legend(title='Status spłaty', labels=['Niespłacona', 'Spłacona'])
+plt.show()
+
+# Wykres gęstości (KDE) - Gęstość rozkładu wyniku FICO według grup dochodowych
+
+plt.figure(figsize=(12, 6))
+sns.kdeplot(data=oczyszczone_dane, x='fico_score', hue='income_group', fill=True, common_norm=False, alpha=0.5)
+plt.title('Gęstość rozkładu wyniku FICO w zależności od grupy dochodowej')
+plt.xlabel('Wynik FICO')
+plt.ylabel('Gęstość')
+plt.show()
+
+#Wykres słupkowy - Średnia długość historii kredytowej w zależności od grupy dochodowej
+
+plt.figure(figsize=(12, 6))
+avg_credit_history = oczyszczone_dane.groupby('income_group')['credit_history_length'].mean().reset_index()
+sns.barplot(x='income_group', y='credit_history_length', data=avg_credit_history)
+plt.title('Średnia długość historii kredytowej w zależności od grupy dochodowej')
+plt.xlabel('Grupa dochodowa')
+plt.ylabel('Średnia długość historii kredytowej (w latach)')
+plt.show()
+
+
+# Testy statystyczne dla grup dochodowych
+
+from scipy import stats
+#1. Test Chi-kwadrat dla Zależności między Grupą Dochodową a Statusem Spłaty
+
+# Tworzenie tabeli kontyngencji
+contingency_table = pd.crosstab(oczyszczone_dane['income_group'], oczyszczone_dane['loan_status'])
+
+# Przeprowadzenie testu Chi-kwadrat
+chi2, p, dof, expected = stats.chi2_contingency(contingency_table)
+print(f"Chi-squared: {chi2}, p-value: {p}, degrees of freedom: {dof}")
+print("Expected frequencies:")
+print(expected)
+
+#2. Testy Proporcji między Grupami Dochodowymi a Statusem Spłaty
+
+# Proporcja osób spłacających kredyty w grupie niskiego dochodu
+low_income_paid = oczyszczone_dane[(oczyszczone_dane['income_group'] == 'Niski') & (oczyszczone_dane['loan_status'] == 'Fully Paid')].shape[0]
+low_income_total = oczyszczone_dane[oczyszczone_dane['income_group'] == 'Niski'].shape[0]
+
+# Proporcja osób spłacających kredyty w grupie średniego dochodu
+medium_income_paid = oczyszczone_dane[(oczyszczone_dane['income_group'] == 'Średni') & (oczyszczone_dane['loan_status'] == 'Fully Paid')].shape[0]
+medium_income_total = oczyszczone_dane[oczyszczone_dane['income_group'] == 'Średni'].shape[0]
+
+#Test proporcji
+p_low_income = low_income_paid / low_income_total
+p_medium_income = medium_income_paid / medium_income_total
+
+# Porównanie proporcji
+z_stat = (p_low_income - p_medium_income) / ((p_low_income * (1 - p_low_income) / low_income_total) + (p_medium_income * (1 - p_medium_income) / medium_income_total)) ** 0.5
+p_value = 2 * (1 - stats.norm.cdf(abs(z_stat)))  # Dwustronny test
+
+print(f"Statystyka Z: {z_stat}, Wartość p: {p_value}")
+
+#3. ANOVA między Grupami Dochodowymi i Innymi Zmianami (np. Długość Historii Kredytowej)
+
+# ANOVA dla długości historii kredytowej
+f_stat, p_value = stats.f_oneway(
+    oczyszczone_dane[oczyszczone_dane['income_group'] == 'Niski']['credit_history_length'],
+    oczyszczone_dane[oczyszczone_dane['income_group'] == 'Średni']['credit_history_length'],
+    oczyszczone_dane[oczyszczone_dane['income_group'] == 'Wysoki']['credit_history_length'],
+    oczyszczone_dane[oczyszczone_dane['income_group'] == 'Bardzo wysoki']['credit_history_length']
+)
+
+print(f"F-statystyka ANOVA: {f_stat}, Wartość p: {p_value}")
+
+
+###### Na wykresach możemy zobaczyć że roczny  dochód bardzo mocno powiązany jest z prawdopodobienstwem nie spłacenia kredytu przez pożyczkobiorcę. Widać że osoby w grupach dochodowych osoby w grupach dochodowych o niższym dochodzie (np. poniżej 30,000) mają znacznie wyższy odsetek niewypłacalności. To sugeruje, że niski dochód jest istotnym czynnikiem ryzyka, który wpływa na zdolność do regulowania zobowiązań kredytowych.
+Z kolei pożyczkobiorcy w grupach o wyższym dochodzie (np. powyżej 60,000) wykazują znacznie niższy odsetek niespłaconych kredytów, co wskazuje na większą stabilność finansową w tych grupach.
+Analiza statusu spłaty:
+
+W grupach niskich dochodów widoczny jest wyraźny brak spłaty kredytów, co może być związane z ograniczonymi możliwościami finansowymi tych osób.
+Proporcje spłaconych pożyczek w grupach średnich i wysokich dochodów są znacznie większe, co sugeruje, że wyższy dochód jest skorelowany z lepszą historią kredytową i mniejszym ryzykiem niewypłacalności.
+Gęstość rozkładu FICO:
+
+Wykresy gęstości i wykresy skrzypkowe pokazują, że osoby z wyższym dochodem często mają lepsze wyniki FICO, co dodatkowo wspiera tezę, że wyższy dochód jest skorelowany z większą zdolnością do spłaty kredytów.
+Grupy dochodowe o wyższych dochodach mają również węższy rozkład wyników FICO, co może sugerować większą jednorodność i stabilność finansową w tej grupie.
+Historia kredytowa:
+
+Średnia długość historii kredytowej jest większa w wyższych grupach dochodowych, co może wskazywać, że osoby z dłuższą historią kredytową są bardziej odpowiedzialne finansowo i mają większe szanse na spłatę pożyczek.
+
+Z testów statystycznych też wynika że Istnieje bardzo silna zależność między grupą dochodową a statusem spłaty. Test Chi-kwadrat Chi-squared: 168.36
+p-value: 2.88e-36 . Tak niski wynik pwskazuje, że grupy dochodowe mają różne szanse na spłatę kredytów. Test proporcji pokazuje że soby w grupie niskiego dochodu mają znacząco niższy wskaźnik spłat kredytów w porównaniu do innych grup dochodowych. Jeśli chodzi o test ANOVA Wartość p równa 0 (w praktyce mniejsza niż 0.001) wskazuje na statystycznie istotną różnicę w średniej długości historii kredotowej między różnymi grupami dochodowymi. Wyniki testów statystycznych potwierdzają, że:
+Roczny dochód ma znaczący wpływ na status spłaty kredytu. Osoby z niższymi dochodami są bardziej narażone na problemy z spłatą.
+Długość historii kredytowej różni się znacznie w zależności od grupy dochodowej, co może sugerować, że osoby o wyższych dochodach mają lepsze zarządzanie kredytami.
+
+
+
+
+
+
+## Teraz zajmiemy się 5 pytaniem projektowym. W jaki sposób historia zatrudnienia wiąże się z prawdopodobieństwem niewykonania zobowiązania?
+
+
+print(oczyszczone_dane['emp_length'].unique())
+# Postanowiłem podzielić zmienne na grupy w celu lepszej wizualizacji
+def classify_employment_length(emp_length):
+    if emp_length < 3:
+        return 'Krótkoterminowe zatrdnienie'
+    elif 3 <= emp_length < 6:
+        return 'Średnioterminowe zatrudnienie'
+    elif 6 <= emp_length < 10:
+        return 'Długoterminowe zatrudnienie'
+    else:
+        return 'Bardzo długoterminowe zatrudnienie'
+
+# Tworzenie nowej kolumny z grupami zatrudnienia
+oczyszczone_dane['employment_group'] = oczyszczone_dane['emp_length'].apply(classify_employment_length)
+
+# Sprawdzenie utworzonej kolumny
+print(oczyszczone_dane[['emp_length', 'employment_group']].head())
+
+
+# Wizualizacje
+
+# Róznice w statusie spłaty
+plt.figure(figsize=(12, 6))
+sns.countplot(x='employment_group', hue='loan_status', data=oczyszczone_dane)
+plt.title('Status spłaty w zależności od długości zatrudnienia')
+plt.xlabel('Grupa zatrudnienia')
+plt.ylabel('Liczba pożyczkobiorców')
+plt.legend(title='Status spłaty')
+plt.show()
+
+#Wykres Pudełkowy - Wynik FICO w Zależności od Grupy Zatrudnienia
+plt.figure(figsize=(12, 6))
+sns.boxplot(x='employment_group', y='fico_score', data=oczyszczone_dane)
+plt.title('Wynik FICO w zależności od długości zatrudnienia')
+plt.xlabel('Grupa zatrudnienia')
+plt.ylabel('Wynik FICO')
+plt.show()
+
+#Wykres Skrzypkowy - Rozkład Długości Historii Kredytowej w Zależności od Grupy Zatrudnienia
+plt.figure(figsize=(12, 6))
+sns.violinplot(x='employment_group', y='credit_history_length', data=oczyszczone_dane, inner='quartile')
+plt.title('Rozkład długości historii kredytowej w zależności od długości zatrudnienia')
+plt.xlabel('Grupa zatrudnienia')
+plt.ylabel('Długość historii kredytowej (w latach)')
+plt.show()
+# Tworzenie tabeli z proporcjami
+proportion_data_emp = oczyszczone_dane.groupby('employment_group')['loan_status'].value_counts(normalize=True).unstack()
+
+proportion_data_emp.plot(kind='bar', stacked=True, figsize=(12, 6))
+plt.title('Proporcje statusu spłaty w zależności od długości zatrudnienia')
+plt.xlabel('Grupa zatrudnienia')
+plt.ylabel('Proporcja')
+plt.legend(title='Status spłaty', labels=['Niespłacona', 'Spłacona'])
+plt.show()
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+# Wykres zaleznosci miedzy grupami dochodowymi a dlugością zatrudnienia
+plt.figure(figsize=(12, 6))
+sns.violinplot(x='employment_group', y='income_group', data=oczyszczone_dane, inner='quartile')
+plt.title('Rozkład znormalizowanego rocznego dochodu w zależności od długości zatrudnienia')
+plt.xlabel('Grupa zatrudnienia')
+plt.ylabel('Znormalizowany roczny dochód')
+plt.show()
+
+
+
+#testy statystyczne
+#Przeprowadzam trzy esty statystyczne
+# Test Chi-kwadrat: Sprawdzimy, czy istnieje związek między grupą długości zatrudnienia a statusem spłaty.
+# T-test: Jeśli chcemy porównać średnie wyniki FICO między różnymi grupami długości zatrudnienia.
+# ANOVA: Może być użyta, aby zobaczyć, czy istnieją różnice w długości historii kredytowej w różnych grupach zatrudnienia.
+
+from scipy import stats
+
+# Tworzenie tabeli kontyngencji
+contingency_table_emp = pd.crosstab(oczyszczone_dane['employment_group'], oczyszczone_dane['loan_status'])
+
+# Przeprowadzenie testu Chi-kwadrat
+chi2_emp, p_emp, dof_emp, expected_emp = stats.chi2_contingency(contingency_table_emp)
+
+print(f"Chi-squared: {chi2_emp}, p-value: {p_emp}, degrees of freedom: {dof_emp}")
+print("Expected frequencies:")
+print(expected_emp)
+
+
+# Wydzielenie danych dla dwóch grup zatrudnienia
+short_emp_fico = oczyszczone_dane[oczyszczone_dane['employment_group'] == 'Krótkoterminowe']['fico_score']
+long_emp_fico = oczyszczone_dane[oczyszczone_dane['employment_group'] == 'Długoterminowe']['fico_score']
+
+# Przeprowadzenie t-testu
+t_stat_emp, p_value_emp = stats.ttest_ind(short_emp_fico, long_emp_fico)
+print(f"T-statystyka: {t_stat_emp}, Wartość p: {p_value_emp}")
+
+# ANOVA dla długości historii kredytowej
+f_stat_emp, p_value_anova_emp = stats.f_oneway(
+    oczyszczone_dane[oczyszczone_dane['employment_group'] == 'Krótkoterminowe']['credit_history_length'],
+    oczyszczone_dane[oczyszczone_dane['employment_group'] == 'Średnioterminowe']['credit_history_length'],
+    oczyszczone_dane[oczyszczone_dane['employment_group'] == 'Długoterminowe']['credit_history_length'],
+    oczyszczone_dane[oczyszczone_dane['employment_group'] == 'Bardzo długoterminowe']['credit_history_length']
+)
+
+print(f"F-statystyka ANOVA: {f_stat_emp}, Wartość p: {p_value_anova_emp}")
+
+
+
+#####Wnioski z Wykresów
+Wpływ Długości Zatrudnienia na Roczny Dochód:
+
+Wykres skrzypkowy pokazuje, że różne grupy zatrudnienia mają zróżnicowany rozkład znormalizowanego rocznego dochodu. Osoby z długoterminowym zatrudnieniem (np. 10 i więcej lat) mają wyższe mediany dochodu w porównaniu do tych, którzy są zatrudnieni krócej.
+Może to sugerować, że długotrwałe zatrudnienie wiąże się z lepszymi możliwościami finansowymi i wyższymi dochodami, co potencjalnie wpływa na zdolność do spłaty kredytów.
+Stabilność Finansowa:
+
+W przypadku grup zatrudnienia o krótkim stażu (0-2 lata), rozkład dochodów jest bardziej zróżnicowany, z większą ilością niskich wartości. To może wskazywać na niestabilność finansową w tej grupie, co zwiększa ryzyko niewypłacalności.
+Osoby w grupach średnioterminowych (3-5 lat) wykazują jednorodny rozkład dochodu, co sugeruje, że ci pożyczkobiorcy mogą mieć lepsze możliwości spłaty.
+
+Związek z Niewypłacalnością:
+Wykresy  pokazują podobny wskaźnik niewypłacalności wśród osób zatrudnionych krócej i dłużej, można wnioskować że długość zatrudnienia nie jest jedynym czynnikiem wpływającym na zdolność kredytową.
+
+Test Chi-kwadrat
+Chi-squared: 9.70
+p-value: 0.021
+Degrees of freedom: 3
+Interpretacja:
+
+Wartość p wynosząca 0.021 jest mniejsza niż 0.05, co sugeruje, że istnieje istotna statystycznie zależność między grupą długości zatrudnienia a statusem spłaty kredytu.
+Oznacza to, że różne grupy długości zatrudnienia mają różne wskaźniki niewypłacalności, co może sugerować, że stabilność zatrudnienia wpływa na zdolność kredytową.
+2. T-test dla Niezależnych Prób
+T-statystyka: -8.07
+p-value: 7.46e-16
+Interpretacja:
+
+Wartość p jest znacznie mniejsza niż 0.05, co sugeruje, że istnieje istotna różnica w średnich wynikach FICO między osobami zatrudnionymi krótko a tymi zatrudnionymi długo.
+Negatywna wartość t-statystyki wskazuje, że średni wynik FICO dla grupy z krótkim zatrudnieniem jest znacznie niższy niż w grupie długoterminowej, co potwierdza, że dłuższy staż pracy wiąże się z lepszymi wynikami kredytowymi.
+3. ANOVA
+F-statystyka: 1404.18
+p-value: 0.0
+Interpretacja:
+
+Wartość p równa 0 (mniejsza niż 0.001) wskazuje na bardzo silną statystycznie istotną różnicę w długości historii kredytowej między różnymi grupami długości zatrudnienia.
+To oznacza, że przynajmniej jedna z grup zatrudnienia ma inną średnią długości historii kredytowej, co może sugerować, że osoby z dłuższym stażem pracy mają lepsze umiejętności zarządzania finansami.
+Podsumowanie
+Wyniki tych testów wskazują na:
+
+Istotny związek: Długość zatrudnienia ma znaczący wpływ na status spłaty kredytów, co potwierdza, że stabilność zatrudnienia jest ważnym czynnikiem w ocenie ryzyka kredytowego.
+Różnice w wynikach FICO: Osoby z dłuższym stażem pracy mają lepsze wyniki kredytowe, co może być wynikiem ich większej stabilności finansowej.
+Długość historii kredytowej: Różnice w długości historii kredytowej wskazują, że dłuższy staż zatrudnienia może przyczyniać się do lepszej zdolności do spłaty kredytów.
+
+
+##Jak wielkość żądanej pożyczki jest powiązana z prawdopodobieństwem niewykonania zobowiązania?
+
+
+
+
+
+# Statystyki opisowe
+loan_amount_stats = oczyszczone_dane.groupby('loan_status')['loan_amnt'].describe()
+print(loan_amount_stats)
+
+
+# przypisanie grup
+def assign_loan_group(loan_amount):
+    if loan_amount < 10000:
+        return 'Małe pożyczki'
+    elif 10000 <= loan_amount < 25000:
+        return 'Średnie pożyczki'
+    elif 25000 <= loan_amount < 50000:
+        return 'Duże pożyczki'
+    else:
+        return 'Bardzo duże pożyczki'
+
+# Przypisanie grup do kolumny
+oczyszczone_dane['loan_amount_group'] = oczyszczone_dane['loan_amnt'].apply(assign_loan_group)
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+
+
+
+# Obliczanie liczby pożyczkobiorców w każdej grupie
+loan_group_counts = oczyszczone_dane['loan_amount_group'].value_counts()
+
+# Tworzenie wykresu kołowego
+plt.figure(figsize=(8, 8))
+plt.pie(loan_group_counts, labels=loan_group_counts.index, autopct='%1.1f%%', startangle=140)
+plt.title('Procentowy udział grup wielkości pożyczek w całkowitej liczbie pożyczkobiorców')
+plt.axis('equal')  # Równy aspekt, aby wykres był okrągły
+plt.show()
+
+# Wykres słupkowy - proporcje statusu spłaty
+plt.figure(figsize=(12, 6))
+proportion_data_loan = oczyszczone_dane.groupby('loan_amount_group')['loan_status'].value_counts(normalize=True).unstack()
+
+proportion_data_loan.plot(kind='bar', stacked=True, figsize=(12, 6))
+plt.title('Proporcje statusu spłaty w zależności od grupy kwot pożyczek')
+plt.xlabel('Grupa kwoty pożyczki')
+plt.ylabel('Proporcja')
+plt.legend(title='Status spłaty', labels=['Niespłacona', 'Spłacona'])
+plt.show()
+
+# Wizualizacje
+
+#Wykres Pudełkowy - Wynik FICO w Zależności od Grupy Kwot Pożyczek
+plt.figure(figsize=(12, 6))
+sns.boxplot(x='loan_amount_group', y='fico_score', data=oczyszczone_dane)
+plt.title('Wynik FICO w zależności od grupy kwot pożyczek')
+plt.xlabel('Grupa kwoty pożyczki')
+plt.ylabel('Wynik FICO')
+plt.show()
+
+# Proporcje statusu spłaty w zależności od długości zatrudnienia i grupy kwot pożyczek
+plt.figure(figsize=(12, 6))
+proportion_data_emp_loan = oczyszczone_dane.groupby(['employment_group', 'loan_amount_group'])['loan_status'].value_counts(normalize=True).unstack().fillna(0)
+
+proportion_data_emp_loan.plot(kind='bar', stacked=True, figsize=(12, 6))
+plt.title('Proporcje statusu spłaty w zależności od długości zatrudnienia i grupy kwot pożyczek')
+plt.xlabel('Długość zatrudnienia')
+plt.ylabel('Proporcja')
+plt.legend(title='Status spłaty', labels=['Niespłacona', 'Spłacona'])
+plt.show()
+
+#Wykres gęstości (KDE) - Gęstość rozkładu kwot pożyczek według statusu spłaty
+plt.figure(figsize=(12, 6))
+sns.kdeplot(data=oczyszczone_dane, x='loan_amnt', hue='loan_status', fill=True, common_norm=False, alpha=0.5)
+plt.title('Gęstość rozkładu kwot pożyczek w zależności od statusu spłaty')
+plt.xlabel('Wielkość żądanej pożyczki')
+plt.ylabel('Gęstość')
+plt.show()
+
+# Przypisanie grup FICO
+def assign_fico_group(fico_score):
+    if fico_score < 580:
+        return 'Niski wynik FICO'
+    elif 580 <= fico_score < 670:
+        return 'Średnie wyniki FICO'
+    elif 670 <= fico_score < 740:
+        return 'Dobre wyniki FICO'
+    else:
+        return 'Doskonałe wyniki FICO'
+
+# Przypisanie grup do kolumny
+oczyszczone_dane['fico_group'] = oczyszczone_dane['fico_score'].apply(assign_fico_group)
+
+# Proporcje statusu spłaty w zależności od grupy FICO i grupy kwot pożyczek
+plt.figure(figsize=(12, 6))
+proportion_data_fico_loan = oczyszczone_dane.groupby(['fico_group', 'loan_amount_group'])['loan_status'].value_counts(normalize=True).unstack().fillna(0)
+
+proportion_data_fico_loan.plot(kind='bar', stacked=True, figsize=(12, 6))
+plt.title('Proporcje statusu spłaty w zależności od grupy FICO i grupy kwot pożyczek')
+plt.xlabel('Grupa FICO')
+plt.ylabel('Proporcja')
+plt.legend(title='Status spłaty', labels=['Niespłacona', 'Spłacona'])
+plt.show()
+
+# Przypisanie grup dochodów
+def assign_income_group(income):
+    if income < 40000:
+        return 'Niski Dochód'
+    elif 40000 <= income <= 80000:
+        return 'Średni dochód'
+    else:
+        return 'Wysoki dochód'
+
+# Przypisanie grup do kolumny
+oczyszczone_dane['income_group'] = oczyszczone_dane['annual_inc'].apply(assign_income_group)
+
+# Proporcje statusu spłaty w zależności od grupy dochodów i grupy kwot pożyczek
+plt.figure(figsize=(12, 6))
+proportion_data_income_loan = oczyszczone_dane.groupby(['income_group', 'loan_amount_group'])['loan_status'].value_counts(normalize=True).unstack().fillna(0)
+
+proportion_data_income_loan.plot(kind='bar', stacked=True, figsize=(12, 6))
+plt.title('Proporcje statusu spłaty w zależności od grupy dochodów i grupy kwot pożyczek')
+plt.xlabel('Grupa Dochodu')
+plt.ylabel('Proporcja')
+plt.legend(title='Status spłaty', labels=['Niespłacona', 'Spłacona'])
+plt.show()
+
+
+# Obliczanie rozkładu FICO dla każdej grupy pożyczek
+fico_distribution = oczyszczone_dane.groupby(['loan_amount_group', 'fico_group']).size().unstack(fill_value=0)
+
+# Obliczanie udziału
+fico_distribution_percentage = fico_distribution.div(fico_distribution.sum(axis=1), axis=0) * 100
+
+# Ustalanie wielkości wykresu
+fig, axes = plt.subplots(2, 2, figsize=(12, 12))
+axes = axes.flatten()
+
+# Grupy pożyczek
+loan_groups = fico_distribution_percentage.index
+
+for i, group in enumerate(loan_groups):
+    axes[i].pie(fico_distribution_percentage.loc[group], labels=fico_distribution_percentage.columns, autopct='%1.1f%%', startangle=140)
+    axes[i].set_title(f'Udział grup FICO dla {group} ')
+    axes[i].axis('equal')  # Równy aspekt, aby wykres był okrągły
+
+plt.tight_layout()
+plt.show()
+
+
+##### Z wykresu proporcji statusu spłaty w zalezności od grup dochodowych, i  kwoty pożyczek wynika że osoby o niskich dochodach najczęściej niespłacają średnich i małych pożyczek a osoby o średnich i wysokich dochodach najczęściej niespłacają dużych pożyczek. Widać też że niezależnie od wyników FICO czy to wysokich czy średnich czy bardzo dobrym wynikiem fico najwięcej niespłaconych pożyczek jest w grupach biorących duże pożyczki. Tak samo wygląda sytuacja na wykresie z proporcjami spłaconych i niespłaconych pożyczek w grupach podzielonych ze względu na długości zatrudnienia. We wszystkich grupach największy procent niewypłacalności był w grupach pożyczkobiorców które brały duże pożyczki. Widać również że pożyczkobiorcy biorący duże pożyczki osiągają lepszy FICO score. Analizy pokazują, że największy procent niespłaconych pożyczek występuje w grupie osób, które zaciągają duże pożyczki. Może to sugerować, że większe zobowiązania finansowe przekraczają możliwości spłaty wielu pożyczkobiorców.Około 90% pożyczkobiorców decyduje się na małe i średnie pożyczki. To wskazuje, że mniejsze zobowiązania są preferowane przez klientów, co sugeruje, że wielu pożyczkobiorców szuka równowagi między wysokością pożyczki a możliwościami jej spłaty.
+
+
+
+> Dodaj cytat blokowy
+
+
+
+#testy statystyczne
+
+from scipy import stats
+
+# Tworzenie tabeli kontyngencji
+contingency_table_loan = pd.crosstab(oczyszczone_dane['loan_amount_group'], oczyszczone_dane['loan_status'])
+
+# Przeprowadzenie testu Chi-kwadrat
+chi2_loan, p_loan, dof_loan, expected_loan = stats.chi2_contingency(contingency_table_loan)
+
+print(f"Chi-squared: {chi2_loan}, p-value: {p_loan}, degrees of freedom: {dof_loan}")
+print("Expected frequencies:")
+print(expected_loan)
+#T test
+
+# Wydzielenie danych dla różnych grup pożyczek
+small_loan_fico = oczyszczone_dane[oczyszczone_dane['loan_amount_group'] == 'Małe']['fico_score']
+medium_loan_fico = oczyszczone_dane[oczyszczone_dane['loan_amount_group'] == 'Średnie']['fico_score']
+large_loan_fico = oczyszczone_dane[oczyszczone_dane['loan_amount_group'] == 'Duże']['fico_score']
+very_large_loan_fico = oczyszczone_dane[oczyszczone_dane['loan_amount_group'] == 'Bardzo duże']['fico_score']
+
+# Przeprowadzenie t-testu pomiędzy grupami
+t_stat_small_medium, p_value_small_medium = stats.ttest_ind(small_loan_fico, medium_loan_fico)
+t_stat_medium_large, p_value_medium_large = stats.ttest_ind(medium_loan_fico, large_loan_fico)
+t_stat_large_very_large, p_value_large_very_large = stats.ttest_ind(large_loan_fico, very_large_loan_fico)
+
+print(f"T-statystyka dla Małe vs Średnie: {t_stat_small_medium}, Wartość p: {p_value_small_medium}")
+print(f"T-statystyka dla Średnie vs Duże: {t_stat_medium_large}, Wartość p: {p_value_medium_large}")
+print(f"T-statystyka dla Duże vs Bardzo Duże: {t_stat_large_very_large}, Wartość p: {p_value_large_very_large}")
+
+
+#ANOVA
+
+# ANOVA dla długości historii kredytowej
+f_stat_loan, p_value_anova_loan = stats.f_oneway(
+    oczyszczone_dane[oczyszczone_dane['loan_amount_group'] == 'Małe']['credit_history_length'],
+    oczyszczone_dane[oczyszczone_dane['loan_amount_group'] == 'Średnie']['credit_history_length'],
+    oczyszczone_dane[oczyszczone_dane['loan_amount_group'] == 'Duże']['credit_history_length'],
+    oczyszczone_dane[oczyszczone_dane['loan_amount_group'] == 'Bardzo duże']['credit_history_length']
+)
+
+print(f"F-statystyka ANOVA: {f_stat_loan}, Wartość p: {p_value_anova_loan}")
+
+
+##1.Testy statystyczne
+
+ Test Chi-kwadrat
+Chi-squared: 65.34
+p-value: 6.47e-15
+Degrees of freedom: 2
+Interpretacja:
+
+Wartość p jest znacznie mniejsza niż 0.05, co sugeruje, że istnieje istotna statystycznie zależność między grupą kwot pożyczek a statusem spłaty.
+Może to oznaczać, że różne grupy pożyczek mają różne wskaźniki niewypłacalności.
+2. T-testy dla Niezależnych Prób
+
+T-statystyka dla Małe vs Średnie: -19.78, p-value: 1.12e-86
+
+T-statystyka dla Średnie vs Duże: -10.72, p-value: 9.79e-27
+
+T-statystyka dla Duże vs Bardzo Duże: nan, p-value: nan
+
+Interpretacja:
+
+Wartości p dla porównań między grupami "Małe" a "Średnie" oraz "Średnie" a "Duże" są znacznie mniejsze niż 0.05, co sugeruje, że istnieje istotna różnica w średnich wynikach FICO między tymi grupami.
+Negatywne wartości t-statystyki wskazują, że średni wynik FICO dla grupy "Małe" jest znacznie niższy niż dla grupy "Średnie" oraz że "Średnie" mają niższe wyniki w porównaniu do "Duże".
+W przypadku porównania "Duże" i "Bardzo Duże" otrzymanie wartości nan może sugerować, że jedna z grup jest pusta lub nie ma wystarczających danych, co uniemożliwia przeprowadzenie analizy.
+3. ANOVA
+F-statystyka: nan, p-value: nan
+Interpretacja:
+
+Wartości nan w wynikach ANOVA mogą sugerować, że dane są nieodpowiednie do przeprowadzenia analizy, prawdopodobnie z powodu braku obserwacji w jednej z grup.
+Wnioski
+Zależności: Istnieje silna zależność między grupami pożyczek a statusem spłaty, co może sugerować, że osoby biorące większe pożyczki mogą mieć różne wyniki kredytowe i ryzyko niewypłacalności w porównaniu do tych z mniejszymi pożyczkami.
+Różnice w wynikach FICO: Istotne różnice w średnich wynikach FICO między grupami sugerują, że kwota pożyczki jest istotnym czynnikiem w ocenie ryzyka kredytowego.
+
+
+##Feature Engineering – utwórz 20 nowych zmiennych
+
+oczyszczone_dane.columns
+
+
+# 1.Tworzę zmienną DTI aby obliczyć, jaki procent dochodu rocznego pożyczkobiorcy jest przeznaczany na spłatę długów.
+# Oblicz miesięczny dochód
+oczyszczone_dane['monthly_income'] = oczyszczone_dane['annual_inc'] / 12
+
+# określam stawkę na karcie kredytowej w przyblizeniu zakładam 3 % poniewarz brakuje mi odpowiednich danych
+monthly_interest_rate = 0.03
+oczyszczone_dane['monthly_debt'] = oczyszczone_dane['installment'] + (oczyszczone_dane['revol_bal'] * monthly_interest_rate)
+
+# Oblicz DTI
+oczyszczone_dane['DTI'] = (oczyszczone_dane['monthly_debt'] / oczyszczone_dane['monthly_income']) * 100
+print(oczyszczone_dane[['monthly_income', 'monthly_debt', 'DTI', 'revol_bal', 'installment', ]].head())
+
+
+
+
+#2.Loan to Income Ratio: Stosunek kwoty pożyczki do rocznego dochodu, co pomoże ocenić, jak duże obciążenie finansowe stanowi pożyczka dla pożyczkobiorcy.
+
+# Obliczanie Loan to Income Ratio
+oczyszczone_dane['LTR_in_prc'] = oczyszczone_dane['loan_amnt'] / oczyszczone_dane['annual_inc'] * 100
+
+
+print(oczyszczone_dane[['loan_amnt', 'annual_inc', 'LTR_in_prc']].head())
+
+
+# 3.Monthly Payment Ratio:
+
+# Opis: Stosunek miesięcznej płatności do miesięcznego dochodu.
+
+oczyszczone_dane['monthly_payment_ratio'] = oczyszczone_dane['installment'] / oczyszczone_dane['monthly_income'] * 100
+print(oczyszczone_dane[[ 'monthly_payment_ratio']].head())
+
+
+#4. Loan Status Indicator:
+
+# Opis: Binarny wskaźnik, czy pożyczka została spłacona (1) czy nie (0).
+oczyszczone_dane['loan_status_indicator'] = oczyszczone_dane['loan_status'].apply(lambda x: 1 if x == 'Fully Paid' else 0)
+print(oczyszczone_dane[['loan_status_indicator']].head())
+
+
+# 5.Interest Rate Category:
+
+# Opis: Kategoria stopy procentowej (Niska, Średnia, Wysoka).
+def interest_rate_category(rate):
+    if rate < 10:
+        return 'Niska stopa procentowa'
+    elif 10 <= rate < 15:
+        return 'Średnia stopa procentowa'
+
+    else:
+        return 'Wysoka stopa procentowa'
+
+oczyszczone_dane['int_rate_category'] = oczyszczone_dane['int_rate'].apply(interest_rate_category)
+print(oczyszczone_dane[['int_rate', 'int_rate_category']].head())
+
+#6. Payment History Length:
+
+# Opis: Długość historii płatności na podstawie najstarszej linii kredytowej w latach.
+
+oczyszczone_dane['payment_history_length'] = (pd.to_datetime('today') - pd.to_datetime(oczyszczone_dane['earliest_cr_line'])).dt.days / 365.25
+print(oczyszczone_dane[['earliest_cr_line', 'payment_history_length']].head())
+
+# Już wcześniej stworzone przeze mnnie zmienne
+
+#7.# Grupy ryzyka na podstawie ilości punktów Fico
+def przypisz_grupe_fico(fico):
+    if fico >= 800:
+        return 'Bardzo wysokie FiCO (800-850)'
+    elif fico >= 740:
+        return 'Wysokie  FICO (740-799)'
+    elif fico >= 670:
+        return 'Średnie FICO (670-739)'
+    elif fico >= 580:
+        return 'Niskie FICO (580-669)'
+    else:
+        return 'Bardzo niskie FICO (poniżej 580)'
+
+# Przypisanie grup ryzyka
+oczyszczone_dane['grupa_ryzyka'] = oczyszczone_dane['fico_score'].apply(przypisz_grupe_fico)
+
+#8# Stworzenie grup dochodowych wśród klientów
+def classify_income(income):
+    if income < 30000:
+        return 'Niski dochód'
+    elif 30000 <= income < 60000:
+        return 'Średni dochód'
+    elif 60000 <= income < 100000:
+        return 'Wysoki dochód'
+    else:
+        return 'Bardzo wysoki dochód'
+
+# Tworzenie nowej kolumny z grupami dochodowymi
+oczyszczone_dane['income_group'] = oczyszczone_dane['annual_inc'].apply(classify_income)
+
+
+#9# Stworzenie grup dla długości zatrudnienia
+def classify_employment_length(emp_length):
+    if emp_length < 3:
+        return 'Krótkoterminowe zatrdnienie'
+    elif 3 <= emp_length < 6:
+        return 'Średnioterminowe zatrudnienie'
+    elif 6 <= emp_length < 10:
+        return 'Długoterminowe zatrudnienie'
+    else:
+        return 'Bardzo długoterminowe zatrudnienie'
+
+# Tworzenie nowej kolumny z grupami zatrudnienia
+oczyszczone_dane['employment_group'] = oczyszczone_dane['emp_length'].apply(classify_employment_length)
+
+#10  Grupowanie na ppodstawie wysokości pożyczki
+def loan_amount_group(amount):
+    if amount < 10000:
+        return 'Małe pożyczki'
+    elif 10000 <= amount < 25000:
+        return 'Średnie pożyczki'
+    elif 25000 <= amount < 50000:
+        return 'Duże pożyczki'
+    else:
+        return 'Bardzo Duże pożyczki'
+
+oczyszczone_dane['loan_amount_group'] = oczyszczone_dane['loan_amnt'].apply(loan_amount_group)
+
+#11 Kategoryzacja opóźnień w płatnościach na podstawie delinq_amnt.
+def delinquency_group(delinq):
+    if delinq == 0:
+        return 'Brak opóźnień'
+    elif 1 <= delinq <= 2:
+        return 'Niewielkie opóźnienia'
+    elif 3 <= delinq <= 5:
+        return 'Średnie opóźnienia'
+    else:
+        return 'Wielokrotne opóźnienia'
+
+oczyszczone_dane['delinquency_group'] = oczyszczone_dane['delinq_amnt'].apply(delinquency_group)
+
+#12 Podział DTI na grupy
+def dti_group(dti):
+    if dti < 20:
+        return 'Niski DTI'
+    elif 20 <= dti < 36:
+        return 'Umiarkowany DTI'
+    elif 36 <= dti < 50:
+        return 'Wysoki DTI'
+    else:
+        return 'Bardzo Wysoki DTI'
+
+oczyszczone_dane['dti_group'] = oczyszczone_dane['DTI'].apply(dti_group)
+
+#13 Ocena ryzyka
+
+oczyszczone_dane['risk_score'] = (oczyszczone_dane['DTI'] + oczyszczone_dane['LTR_in_prc']) / 2
+
+# podział na grupy ryzyka
+def risk_score_group(score):
+    if score < 20:
+        return 'Niskie ryzyko'
+    elif 20 <= score < 40:
+        return 'Umiarkowane ryzyko'
+    elif 40 <= score < 60:
+        return 'Wysokie ryzyko'
+    else:
+        return 'Bardzo wysokie ryzyko'
+
+# Przypisanie grup ryzyka do nowej kolumny
+oczyszczone_dane['risk_score_group'] = oczyszczone_dane['risk_score'].apply(risk_score_group)
+
+#14 Wskaźnik zadłużenia (Debt Ratio)
+#Opis: Oblicza stosunek całkowitego zadłużenia (revol_bal + out_prncp) do rocznego dochodu (annual_inc). Może pomóc w ocenie, jak duże jest zadłużenie pożyczkobiorcy w porównaniu do jego dochodu.
+oczyszczone_dane['debt_ratio'] = (oczyszczone_dane['revol_bal'] + oczyszczone_dane['out_prncp']) / oczyszczone_dane['annual_inc']
+
+# 15 Procent wykorzystanego kredytu (Credit Utilization Rate)
+#Opis: Stosunek revol_bal (saldo zadłużenia na karcie kredytowej) do credit_history_length (długość historii kredytowej). Może wskazywać na to, jak intensywnie pożyczkobiorca korzysta z dostępnych środków w stosunku do długości swojej historii kredytowej.
+oczyszczone_dane['credit_utilization_rate'] = oczyszczone_dane['revol_bal'] / oczyszczone_dane['credit_history_length']
+
+#16  Procent pożyczek w opóźnieniu (Late Loan Ratio)
+#Opis: Wskaźnik pożyczek, które są w opóźnieniu, w stosunku do całkowitej liczby pożyczek (total_acc). Może to być pomocne w ocenie ryzyka kredytowego pożyczkobiorcy.
+oczyszczone_dane['late_loan_ratio'] = oczyszczone_dane['pub_rec'] / oczyszczone_dane['total_acc']
+
+#17 #
+# Zamiana daty 'earliest_cr_line' na format datetime
+oczyszczone_dane['earliest_cr_line'] = pd.to_datetime(oczyszczone_dane['earliest_cr_line'], errors='coerce')
+
+# Obliczenie wieku kredytowego w latach
+oczyszczone_dane['credit_age'] = (pd.to_datetime('today') - oczyszczone_dane['earliest_cr_line']).dt.days // 365
+
+# 18 Procent pożyczek w opóźnieniu (Late Loan Ratio)
+oczyszczone_dane['late_loan_ratio'] = oczyszczone_dane['pub_rec'] / oczyszczone_dane['total_acc']
+
+# 19 Loan Term to Income Ratio (Stosunek długości pożyczki do dochodu): Ocena, jak długi okres spłaty jest w stosunku do rocznego dochodu pożyczkobiorcy, co może pomóc ocenić zdolność kredytową.
+oczyszczone_dane['loan_term_to_income'] = (oczyszczone_dane['term'] * 12) / oczyszczone_dane['annual_inc']
+
+#20 # Przekształcenie zmiennej 'mths_since_last_delinq' na liczbę lat
+oczyszczone_dane['time_since_last_delinquency'] = oczyszczone_dane['mths_since_last_delinq'] / 12
+
+
+print(oczyszczone_dane[['DTI', 'LTR_in_prc', 'risk_score' , 'term', 'int_rate', 'credit_age', 'time_since_last_delinquency' ]].head())
+
+# Zapisanie nowego DataFrame do pliku CSV
+oczyszczone_dane.to_csv('Loan_data1.csv', index=False)
+# Wczytanie pliku Loan_data1.csv do DataFrame
+Loan_data1 = pd.read_csv('Loan_data1.csv')
+
+# Sprawdzenie rozmiaru DataFrame
+print(Loan_data1.shape)
+
+
+#MODELOWNIE - czyli ostatni etap projektu
+
+Wykonaj klasteryzację danych (wypróbuj do tego celu kilka metod, min. 3) i sprawdź, czy występują jakieś segmenty pożyczkobiorców, wykorzystaj odpowiednie metody do określenia optymalnej liczby klastrów.
+
+
+
+print(Loan_data1.columns)
+
+###Klasteryzacja metodą KMeans z wykorzystaniem metody "łokcia" i wskaźnika sylwetkowego
+
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+import matplotlib.pyplot as plt
+
+# Wczytywanie danych
+df = pd.read_csv('Loan_data1.csv')
+
+# Wypełnienie brakujących wartości: średnia dla kolumn numerycznych, dominanta dla kolumn tekstowych
+for column in df.columns:
+    if df[column].dtype in ['float64', 'int64']:  # Kolumny numeryczne
+        df[column].fillna(df[column].mean(), inplace=True)
+    elif df[column].dtype == 'object':  # Kolumny tekstowe
+        df[column].fillna(df[column].mode()[0], inplace=True)
+
+# Wybór zmiennych numerycznych do klasteryzacji
+numerical_cols = df.select_dtypes(include=['float64', 'int64']).columns
+df_numerical = df[numerical_cols]
+
+# Skalowanie danych
+scaler = StandardScaler()
+df_scaled = scaler.fit_transform(df_numerical)
+
+# Przekształcenie wyników skalowania na DataFrame dla wygodniejszego podglądu
+df_scaled = pd.DataFrame(df_scaled, columns=numerical_cols)
+
+# Klasteryzacja KMeans i metoda "łokcia"
+range_n_clusters = range(2, 11)
+inertia = []
+silhouette_scores = []
+
+for n_clusters in range_n_clusters:
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    kmeans_labels = kmeans.fit_predict(df_scaled)
+    inertia.append(kmeans.inertia_)
+    silhouette_scores.append(silhouette_score(df_scaled, kmeans_labels))
+
+# Wykres metody łokcia
+plt.figure(figsize=(10, 5))
+plt.plot(range_n_clusters, inertia, marker='o', label="Inertia")
+plt.xlabel('Number of clusters')
+plt.ylabel('Inertia')
+plt.title('Elbow Method for Optimal Clusters (KMeans)')
+plt.legend()
+plt.show()
+
+# Wykres wskaźnika sylwetkowego
+plt.figure(figsize=(10, 5))
+plt.plot(range_n_clusters, silhouette_scores, marker='o', color='orange', label="Silhouette Score")
+plt.xlabel('Number of clusters')
+plt.ylabel('Silhouette Score')
+plt.title('Silhouette Score for Different Number of Clusters (KMeans)')
+plt.legend()
+plt.show()
+
+
+
+
+###Wygląda na to że liczba klastrów 4 może być optymalna. Jeśli mniejsza liczba klastrów (np. 4) pozwala na sensowną interpretację grup pożyczkobiorców, to może być korzystniejsza. Często uproszczone segmenty są bardziej użyteczne do zastosowań praktycznych.
+
+
+# Klasteryzacja KMeans z optymalną liczbą klastrów (np. 4)
+kmeans = KMeans(n_clusters=4, random_state=42)
+df['Cluster'] = kmeans.fit_predict(df_scaled)  # Dodajemy kolumnę Cluster
+
+# Filtrujemy tylko kolumny numeryczne, aby uniknąć błędów przy obliczaniu średnich
+numerical_cols = df.select_dtypes(include=['float64', 'int64']).columns
+
+# Obliczamy średnie wartości cech numerycznych w każdym klastrze
+cluster_summary = df.groupby('Cluster')[numerical_cols].mean()
+print("Średnie wartości cech numerycznych w każdym klastrze:")
+print(cluster_summary)
+
+# Analiza otrzymanych klastrów
+cluster_counts = df['Cluster'].value_counts()
+print("\nLiczba pożyczkobiorców w każdym klastrze:")
+print(cluster_counts)
+
+# Analiza spłacalności w klastrach
+if 'loan_status' in df.columns:
+    repayment_analysis = df.groupby(['Cluster', 'loan_status']).size().unstack(fill_value=0)
+    repayment_analysis['Default Rate'] = repayment_analysis['Charged Off'] / (repayment_analysis['Fully Paid'] + repayment_analysis['Charged Off'])
+    print("\nAnaliza spłacalności w klastrach:")
+    print(repayment_analysis)
+else:
+    print("\nKolumna 'loan_status' nie została znaleziona w danych.")
+
+
+
+
+
+
+#Teraz tworzenie klastrów za pomocą Klasteryzacji hierarhicznej oraz DBSCAN
+
+from sklearn.cluster import AgglomerativeClustering
+from scipy.cluster.hierarchy import dendrogram, linkage
+import matplotlib.pyplot as plt
+
+
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+
+# Wczytanie danych
+df = pd.read_csv('Loan_data1.csv')
+
+# Uzupełnienie braków
+for column in df.columns:
+    if df[column].dtype in ['float64', 'int64']:
+        df[column].fillna(df[column].mean(), )
+    elif df[column].dtype == 'object':
+        df[column].fillna(df[column].mode()[0], inplace=True)
+
+# Wybór kolumn numerycznych
+numerical_cols = df.select_dtypes(include=['float64', 'int64']).columns
+df_numerical = df[numerical_cols]
+
+# Skalowanie danych
+scaler = StandardScaler()
+df_scaled = scaler.fit_transform(df_numerical)
+from scipy.cluster.hierarchy import dendrogram, linkage
+import matplotlib.pyplot as plt
+
+# Ograniczenie danych do pierwszych 500 próbek (opcjonalnie)
+sample_data = df_scaled[:500]
+
+# Tworzenie dendrogramu
+linked = linkage(sample_data, method='ward')
+plt.figure(figsize=(10, 7))
+dendrogram(linked, orientation='top', distance_sort='descending', show_leaf_counts=False)
+plt.title("Dendrogram for Hierarchical Clustering")
+plt.xlabel("Sample Index")
+plt.ylabel("Distance")
+plt.show()
+
+
+
+
+
+
+import time
+from sklearn.cluster import AgglomerativeClustering
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+
+# Wczytanie danych
+df = pd.read_csv('Loan_data1.csv')
+print("Dane wczytane, liczba rekordów:", df.shape)
+
+# Uzupełnienie braków
+for column in df.columns:
+    if df[column].dtype in ['float64', 'int64']:
+        df[column] = df[column].fillna(df[column].mean())
+    elif df[column].dtype == 'object':
+        df[column] = df[column].fillna(df[column].mode()[0])
+print("Braki uzupełnione.")
+
+# Wybór kolumn numerycznych
+numerical_cols = df.select_dtypes(include=['float64', 'int64']).columns
+print("Wybrano kolumny numeryczne:", numerical_cols)
+
+# Próbka losowa z oryginalnych danych
+sample_df = df.sample(n=30000, random_state=42)
+df_numerical_sample = sample_df[numerical_cols]
+
+# Skalowanie danych próbki
+scaler = StandardScaler()
+df_scaled_sample = scaler.fit_transform(df_numerical_sample)
+
+# Klasteryzacja hierarchiczna na próbce z 4 klastrami
+start_time = time.time()
+agglomerative = AgglomerativeClustering(n_clusters=4, metric='euclidean', linkage='ward')
+sample_df['Agglomerative_Cluster'] = agglomerative.fit_predict(df_scaled_sample)
+end_time = time.time()
+print(f"Klasteryzacja hierarchiczna na próbce zakończona. Czas wykonania: {end_time - start_time:.2f} sekund.")
+
+# Wyświetlenie liczby pożyczkobiorców w każdym klastrze
+print("Liczba pożyczkobiorców w każdym klastrze (na próbce):")
+print(sample_df['Agglomerative_Cluster'].value_counts())
+
+# Analiza średnich wartości cech numerycznych w każdym klastrze
+cluster_summary = sample_df.groupby('Agglomerative_Cluster')[numerical_cols].mean()
+print("\nŚrednie wartości cech numerycznych w każdym klastrze:")
+print(cluster_summary)
+
+# Analiza spłacalności w klastrach (jeśli kolumna 'loan_status' istnieje)
+if 'loan_status' in sample_df.columns:
+    repayment_analysis = sample_df.groupby(['Agglomerative_Cluster', 'loan_status']).size().unstack(fill_value=0)
+    repayment_analysis['Default Rate'] = repayment_analysis['Charged Off'] / (
+        repayment_analysis['Fully Paid'] + repayment_analysis['Charged Off'])
+    print("\nAnaliza spłacalności w klastrach:")
+    print(repayment_analysis)
+else:
+    print("\nKolumna 'loan_status' nie została znaleziona w danych.")
+
+
+
+
+
+
+from sklearn.cluster import DBSCAN
+from sklearn.preprocessing import StandardScaler
+import pandas as pd
+
+# Wczytanie danych
+df = pd.read_csv('Loan_data1.csv')
+print("Dane wczytane, liczba rekordów:", df.shape)
+
+# Uzupełnienie braków
+for column in df.columns:
+    if df[column].dtype in ['float64', 'int64']:
+        df[column] = df[column].fillna(df[column].mean())
+    elif df[column].dtype == 'object':
+        df[column] = df[column].fillna(df[column].mode()[0])
+print("Braki uzupełnione.")
+
+# Wybór kolumn numerycznych
+numerical_columns = df.select_dtypes(include=['float64', 'int64']).columns
+df_numerical = df[numerical_columns]
+print("Wybrano kolumny numeryczne:", numerical_columns)
+
+# Skalowanie danych numerycznych
+scaler = StandardScaler()
+df_scaled = scaler.fit_transform(df_numerical)
+
+# Klasteryzacja DBSCAN z wybranymi parametrami
+dbscan = DBSCAN(eps=5, min_samples=5)
+df['DBSCAN_Cluster'] = dbscan.fit_predict(df_scaled)
+
+# Wyświetlenie liczby klastrów i punktów zaklasyfikowanych jako -1 (szum)
+num_clusters = len(set(df['DBSCAN_Cluster'])) - (1 if -1 in df['DBSCAN_Cluster'] else 0)
+num_noise = list(df['DBSCAN_Cluster']).count(-1)
+print("Liczba klastrów (bez szumu):", num_clusters)
+print("Liczba punktów zaklasyfikowanych jako szum:", num_noise)
+
+# Wyświetlenie liczby pożyczkobiorców w każdym klastrze
+print("\nLiczba pożyczkobiorców w każdym klastrze:")
+print(df['DBSCAN_Cluster'].value_counts())
+
+# Średnie wartości cech numerycznych w każdym klastrze (DBSCAN)
+cluster_summary = df.groupby('DBSCAN_Cluster')[numerical_columns].mean()
+print("\nŚrednie wartości cech numerycznych w każdym klastrze:")
+print(cluster_summary)
+
+# Analiza spłacalności w klastrach (jeśli istnieje kolumna loan_status)
+if 'loan_status' in df.columns:
+    repayment_analysis = df.groupby(['DBSCAN_Cluster', 'loan_status']).size().unstack(fill_value=0)
+    repayment_analysis['Default Rate'] = repayment_analysis['Charged Off'] / (
+        repayment_analysis['Fully Paid'] + repayment_analysis['Charged Off'])
+    print("\nAnaliza spłacalności w klastrach:")
+    print(repayment_analysis)
+else:
+    print("\nKolumna 'loan_status' nie została znaleziona w danych.")
+
+
+
+##1. KMeans
+Liczba pożyczkobiorców w każdym klastrze:
+Klaster 0: 17,167 (największy klaster, 40.35% całego zbioru)
+Klaster 1: 11,236 (26.42%)
+Klaster 2: 11,827 (27.8%)
+Klaster 3: 2,306 (5.43%)
+Default Rate:
+Klaster 0: 17.55%
+Klaster 1: 19.35%
+Klaster 2: 5.86%
+Klaster 3: 23.89%
+Analiza: Klasteryzacja metodą KMeans tworzy klastry o zbliżonych rozmiarach, co może być przydatne przy ocenie dużej liczby pożyczkobiorców. Klaster 2 wyróżnia się niskim ryzykiem (5.86%), podczas gdy klaster 3 ma wyraźnie wyższy wskaźnik niespłacalności (23.89%). Ta metoda daje dość wyważone grupy, ale różnice w wskaźnikach niespłacalności między klastrami nie są tak wyraźne jak przy innych metodach.
+##2. DBSCAN
+Liczba pożyczkobiorców w każdym klastrze:
+Klaster 0: 40,245 (największy klaster, 94.2%)
+Klaster 1: 1,785 (4.2%)
+Klaster -1 (szum): 502 (1.2%)
+Klaster 2: 4 (bardzo mały, <0.01%)
+Default Rate:
+Klaster 0: 14.47%
+Klaster 1: 22.63%
+Klaster -1: 40.84% (punkty szumu)
+Klaster 2: 0.0%
+Analiza: DBSCAN identyfikuje duży główny klaster (klaster 0), który obejmuje większość pożyczkobiorców, ale zawiera kilka małych klastrów (1 i 2) oraz szum (klaster -1). Klaster -1, zawierający 502 pożyczkobiorców, wskazuje na grupę o wysokim ryzyku (40.84% niespłacalności), co może być użyteczne przy identyfikacji wysoce ryzykownych pożyczkobiorców. Jednak z racji na przeważający udział klastra 0, metoda ta nie oferuje zróżnicowania ryzyka na większą skalę.
+##3. Klasteryzacja hierarchiczna (Agglomerative Clustering)
+Liczba pożyczkobiorców w każdym klastrze (na próbce 30,000):
+Klaster 0: 13,215 (44.05% próbki)
+Klaster 1: 6,569 (21.9% próbki)
+Klaster 2: 8,580 (28.6% próbki)
+Klaster 3: 1,636 (5.45% próbki)
+Default Rate:
+Klaster 0: 26.64%
+Klaster 1: 0.75%
+Klaster 2: 6.57%
+Klaster 3: 22.13%
+Analiza: Klasteryzacja hierarchiczna oferuje wyważone grupy i wyraźne różnice w wskaźnikach niespłacalności. Klaster 1, obejmujący 6,569 pożyczkobiorców, ma wyjątkowo niski wskaźnik niespłacalności (0.75%), co sugeruje, że są to pożyczkobiorcy o niskim ryzyku. Klaster 0 (13,215 pożyczkobiorców) i klaster 3 (1,636 pożyczkobiorców) obejmują pożyczkobiorców o wyższym ryzyku, co czyni tę metodę atrakcyjną pod kątem budowy modelu przewidującego różne poziomy ryzyka.
+
+##Wnioski
+Klasteryzacja hierarchiczna (Agglomerative Clustering) wydaje się najlepsza do oceny ryzyka, ponieważ:
+
+Tworzy wyważone i zróżnicowane klastry pod względem wielkości.
+Każdy klaster charakteryzuje się wyraźnie innym wskaźnikiem niespłacalności, co wskazuje na różne poziomy ryzyka.
+Klaster 1, mający najniższy wskaźnik niespłacalności, obejmuje 21.9% próbki, co pozwala na identyfikację niskiego ryzyka w stosunkowo dużej grupie pożyczkobiorców.
+DBSCAN może być przydatny w identyfikacji wysoce ryzykownych pożyczkobiorców jako szumu (klaster -1), ale jego klasyfikacja większości danych do jednego dużego klastra (klaster 0) ogranicza przydatność w różnicowaniu ryzyka na szeroką skalę.
+
+KMeans oferuje bardziej zrównoważone grupy niż DBSCAN, ale różnice w wskaźnikach niespłacalności są mniejsze, co może ograniczyć przydatność tej metody przy identyfikacji zróżnicowanego ryzyka. Dodam numery klastrów tylko z metod KMeans i DBSCAn poniewarz mam problem żeby zrobić klastry metodą hierarchiczną na całym zbiorze danych
+
+
+from sklearn.cluster import KMeans, DBSCAN
+from sklearn.preprocessing import StandardScaler
+import pandas as pd
+
+# Wczytanie danych
+df = pd.read_csv('Loan_data1.csv')
+
+# Uzupełnienie braków
+for column in df.columns:
+    if df[column].dtype in ['float64', 'int64']:
+        df[column] = df[column].fillna(df[column].mean())
+    elif df[column].dtype == 'object':
+        df[column] = df[column].fillna(df[column].mode()[0])
+
+# Wybór kolumn numerycznych
+numerical_columns = df.select_dtypes(include=['float64', 'int64']).columns
+df_numerical = df[numerical_columns]
+
+# Skalowanie danych numerycznych
+scaler = StandardScaler()
+df_scaled = scaler.fit_transform(df_numerical)
+
+# Klasteryzacja KMeans
+kmeans = KMeans(n_clusters=4, random_state=42)
+df['KMeans_Cluster'] = kmeans.fit_predict(df_scaled)
+
+# Klasteryzacja DBSCAN
+dbscan = DBSCAN(eps=5, min_samples=5)
+df['DBSCAN_Cluster'] = dbscan.fit_predict(df_scaled)
+
+# Wyświetlenie wyników
+print("Dodano kolumny z numerami klastrów: 'KMeans_Cluster' i 'DBSCAN_Cluster'")
+print(df[['KMeans_Cluster', 'DBSCAN_Cluster']].head())
+
+
+
+#Wytrenuj 5 różnych modeli, wykorzystując do każdego inny algorytm, a następnie porównaj ich działanie, za metrykę oceny jakości modelu przyjmij AUROC score.
+
+
+
+
+###Model RandomForest
+
+# Wyświetlenie liczby brakujących wartości dla każdej kolumny
+missing_values = df.isnull().sum()
+missing_values = missing_values[missing_values > 0]  # Filtrujemy tylko kolumny z brakującymi wartościami
+print(missing_values)
+
+categorical_cols = df.select_dtypes(include=['object']).columns
+
+# Wypełnianie brakujących wartości
+# Uzupełnienie wartości brakujących w oparciu o średnią dla kolumn numerycznych
+
+for column in ['revol_bal', 'out_prncp', 'funded_diff', 'monthly_debt', 'DTI',
+               'risk_score', 'debt_ratio', 'credit_utilization_rate', 'late_loan_ratio']:
+    if df[column].dtype in ['float64', 'int64']:
+        df[column].fillna(df[column].mean(), inplace=True)
+    elif df[column].dtype == 'object':
+        df[column].fillna(df[column].mode()[0], inplace=True)
+
+# Sprawdzenie, czy brakujące wartości zostały uzupełnione
+print(df.isnull().sum())
+
+
+print(df.columns)
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+# Filtracja tylko kolumn numerycznych
+numerical_df = df.select_dtypes(include=['float64', 'int64'])
+
+# Tworzenie macierzy korelacji dla kolumn numerycznych
+correlation_matrix = numerical_df.corr()
+
+# Rysowanie heatmapy
+plt.figure(figsize=(20, 20))
+sns.heatmap(correlation_matrix, annot=True, fmt=".2f", cmap="coolwarm", cbar=True, square=True, annot_kws={"size": 8})
+plt.title("Macierz korelacji dla zmiennych numerycznych")
+plt.show()
+
+
+
+print(df.columns)
+
+import pandas as pd
+from xgboost import XGBClassifier
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+from sklearn.preprocessing import LabelEncoder
+
+# Wczytanie danych
+df = pd.read_csv('Loan_data1.csv')
+
+# Zakodowanie zmiennych kategorycznych na wartości liczbowe za pomocą LabelEncoder
+label_encoder = LabelEncoder()
+for column in ['grade', 'sub_grade', 'home_ownership', 'verification_status', 'purpose',
+               'addr_state', 'grupa_ryzyka', 'income_group', 'employment_group',
+               'loan_amount_group', 'fico_group', 'int_rate_category', 'delinquency_group',
+               'dti_group']:
+    if column in df.columns:
+        df[column] = label_encoder.fit_transform(df[column].astype(str))
+
+# Wybór zmiennych objaśniających i docelowej
+# Wykluczamy silnie skorelowane kolumny: fico_range_low, fico_range_high, loan_status_indicator,
+# credit_age, payment_history_length, LTR_in_prc, DTI_group, monthly_payment_ratio, debt_ratio
+X = df.drop(columns=[
+    'loan_status', 'loan_status_encoded', 'desc', 'issue_d', 'earliest_cr_line',
+    'risk_score_group', 'fico_range_low', 'fico_range_high', 'loan_status_indicator',
+    'credit_age', 'payment_history_length', 'LTR_in_prc', 'DTI_group',
+    'monthly_payment_ratio', 'debt_ratio'
+], errors='ignore')
+
+y = df['loan_status_encoded']
+
+# Sprawdzenie rozkładu klas
+print("Rozkład klas w zbiorze treningowym i testowym:")
+print(y.value_counts(normalize=True))
+
+# Podział danych na zbiór treningowy i testowy
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+
+# Prosty model XGBoost ze skalą wag klas
+model = XGBClassifier(eval_metric='auc', random_state=42, n_estimators=100, max_depth=3, scale_pos_weight=5.67)
+
+# Trenowanie modelu XGBoost
+model.fit(X_train, y_train)
+
+# Predykcja na zbiorze testowym
+y_pred_proba = model.predict_proba(X_test)[:, 1]
+
+# Obliczenie AUROC na zbiorze testowym
+test_auroc = roc_auc_score(y_test, y_pred_proba)
+print(f"AUROC Score na zbiorze testowym XGBoost: {test_auroc:.4f}")
+
+
+import pandas as pd
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+
+# Wczytanie danych
+df = pd.read_csv('Loan_data1.csv')
+
+# Zakodowanie zmiennych kategorycznych na wartości liczbowe za pomocą LabelEncoder
+label_encoder = LabelEncoder()
+for column in ['grade', 'sub_grade', 'home_ownership', 'verification_status', 'purpose',
+               'addr_state', 'grupa_ryzyka', 'income_group', 'employment_group',
+               'loan_amount_group', 'fico_group', 'int_rate_category', 'delinquency_group',
+               'dti_group']:
+    if column in df.columns:
+        df[column] = label_encoder.fit_transform(df[column].astype(str))
+
+# Wybór zmiennych objaśniających i docelowej
+X = df.drop(columns=[
+    'loan_status', 'loan_status_encoded', 'desc', 'issue_d', 'earliest_cr_line',
+    'risk_score_group', 'fico_range_low', 'fico_range_high', 'loan_status_indicator',
+    'credit_age', 'payment_history_length', 'LTR_in_prc', 'DTI_group',
+    'monthly_payment_ratio', 'debt_ratio'
+], errors='ignore')
+y = df['loan_status_encoded']
+
+# Podział danych na zbiór treningowy i testowy
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+
+# Uzupełnianie brakujących wartości
+imputer = SimpleImputer(strategy='mean')
+X_train = imputer.fit_transform(X_train)
+X_test = imputer.transform(X_test)
+
+# Standaryzacja danych dla KNN i SVM
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# Model 1: K-Nearest Neighbors (KNN)
+knn_model = KNeighborsClassifier(n_neighbors=5)
+knn_model.fit(X_train, y_train)
+y_pred_proba_knn = knn_model.predict_proba(X_test)[:, 1]
+test_auroc_knn = roc_auc_score(y_test, y_pred_proba_knn)
+print(f"AUROC Score na zbiorze testowym dla KNN: {test_auroc_knn:.4f}")
+
+# Model 2: Support Vector Machine (SVM)
+svm_model = SVC(probability=True, random_state=42)
+svm_model.fit(X_train, y_train)
+y_pred_proba_svm = svm_model.predict_proba(X_test)[:, 1]
+test_auroc_svm = roc_auc_score(y_test, y_pred_proba_svm)
+print(f"AUROC Score na zbiorze testowym dla SVM: {test_auroc_svm:.4f}")
+
+
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+
+# Wczytanie danych
+df = pd.read_csv('Loan_data1.csv')
+
+# Zakodowanie zmiennych kategorycznych na wartości liczbowe za pomocą LabelEncoder
+label_encoder = LabelEncoder()
+for column in ['grade', 'sub_grade', 'home_ownership', 'verification_status', 'purpose',
+               'addr_state', 'grupa_ryzyka', 'income_group', 'employment_group',
+               'loan_amount_group', 'fico_group', 'int_rate_category', 'delinquency_group',
+               'dti_group']:
+    if column in df.columns:
+        df[column] = label_encoder.fit_transform(df[column].astype(str))
+
+# Wybór zmiennych objaśniających i docelowej
+# Wykluczamy te same kolumny, co wcześniej
+X = df.drop(columns=[
+    'loan_status', 'loan_status_encoded', 'desc', 'issue_d', 'earliest_cr_line',
+    'risk_score_group', 'fico_range_low', 'fico_range_high', 'loan_status_indicator',
+    'credit_age', 'payment_history_length', 'LTR_in_prc', 'DTI_group',
+    'monthly_payment_ratio', 'debt_ratio'
+], errors='ignore')
+y = df['loan_status_encoded']
+
+# Podział danych na zbiór treningowy i testowy
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+
+# Uzupełnianie brakujących wartości
+imputer = SimpleImputer(strategy='mean')
+X_train = imputer.fit_transform(X_train)
+X_test = imputer.transform(X_test)
+
+# Standaryzacja danych
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# Model 1: Random Forest
+rf_model = RandomForestClassifier(random_state=42, n_estimators=100)
+rf_model.fit(X_train, y_train)
+y_pred_proba_rf = rf_model.predict_proba(X_test)[:, 1]
+test_auroc_rf = roc_auc_score(y_test, y_pred_proba_rf)
+print(f"AUROC Score na zbiorze testowym dla Random Forest: {test_auroc_rf:.4f}")
+
+# Model 2: Regresja Logistyczna
+log_reg_model = LogisticRegression(random_state=42, max_iter=1000)
+log_reg_model.fit(X_train, y_train)
+y_pred_proba_log_reg = log_reg_model.predict_proba(X_test)[:, 1]
+test_auroc_log_reg = roc_auc_score(y_test, y_pred_proba_log_reg)
+print(f"AUROC Score na zbiorze testowym dla Regresji Logistycznej: {test_auroc_log_reg:.4f}")
+
+
+##Sprawdź działanie wcześniej użytych metod na skompresowanych danych za pomocą PCA, porównaj wyniki (AUROC score) z modelami wytrenowanymi w poprzednim podpunkcie.
+
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from xgboost import XGBClassifier
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score
+
+# Wczytanie danych
+df = pd.read_csv('Loan_data1.csv')
+
+# Zakodowanie zmiennych kategorycznych za pomocą LabelEncoder
+label_encoder = LabelEncoder()
+for column in ['grade', 'sub_grade', 'home_ownership', 'verification_status', 'purpose',
+               'addr_state', 'grupa_ryzyka', 'income_group', 'employment_group',
+               'loan_amount_group', 'fico_group', 'int_rate_category', 'delinquency_group',
+               'dti_group']:
+    if column in df.columns:
+        df[column] = label_encoder.fit_transform(df[column].astype(str))
+
+# Wybór zmiennych objaśniających i docelowej
+X = df.drop(columns=[
+    'loan_status', 'loan_status_encoded', 'desc', 'issue_d', 'earliest_cr_line',
+    'risk_score_group', 'fico_range_low', 'fico_range_high', 'loan_status_indicator',
+    'credit_age', 'payment_history_length', 'LTR_in_prc', 'DTI_group',
+    'monthly_payment_ratio', 'debt_ratio'
+], errors='ignore')
+y = df['loan_status_encoded']
+
+# Podział danych na zbiór treningowy i testowy
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+
+# Uzupełnianie brakujących wartości
+imputer = SimpleImputer(strategy='mean')
+X_train = imputer.fit_transform(X_train)
+X_test = imputer.transform(X_test)
+
+# Standaryzacja danych
+scaler = StandardScaler()
+X_train = scaler.fit_transform(X_train)
+X_test = scaler.transform(X_test)
+
+# Redukcja wymiarowości za pomocą PCA
+pca = PCA(n_components=0.95)  # Zachowuje 95% wariancji
+X_train_pca = pca.fit_transform(X_train)
+X_test_pca = pca.transform(X_test)
+
+# Funkcja do trenowania i oceny modelu
+def train_and_evaluate(model, X_train, X_test, y_train, y_test, model_name):
+    model.fit(X_train, y_train)
+    y_pred_proba = model.predict_proba(X_test)[:, 1]
+    auc_score = roc_auc_score(y_test, y_pred_proba)
+    print(f"AUROC Score dla {model_name}: {auc_score:.4f}")
+
+# Modele
+models = {
+    "Random Forest": RandomForestClassifier(random_state=42, n_estimators=100),
+    "Regresja Logistyczna": LogisticRegression(random_state=42, max_iter=1000),
+    "K-Nearest Neighbors": KNeighborsClassifier(n_neighbors=5),
+    "Support Vector Machine": SVC(probability=True, random_state=42),
+    "XGBoost": XGBClassifier(eval_metric='auc', random_state=42, use_label_encoder=False, n_estimators=100, max_depth=3)
+}
+
+# Trenowanie i ocena modeli na danych skompresowanych przez PCA
+print("Wyniki AUROC na skompresowanych danych (PCA):")
+for name, model in models.items():
+    train_and_evaluate(model, X_train_pca, X_test_pca, y_train, y_test, name)
+
+
+
+
+##Model	AUROC Score na pełnych danych po lewej stronie	AUROC Score po PCA widzimy po prawej stronie'
+
+  Random Forest	0.6839	          0.6788
+
+  Regresja Logistyczna	0.6980	          0.7000
+
+K-Nearest Neighbors	0.6069	0.6045
+
+Support Vector Machine	0.6176	0.6076
+
+XGBoost	0.7004	0.6890
+
+Z zestawienia można zauważyć:
+
+##Regresja Logistyczna radzi sobie najlepiej po zastosowaniu PCA, z minimalną poprawą AUROC w porównaniu do pełnych danych.
+##XGBoost oraz Random Forest uzyskują najwyższe wyniki na pełnych danych, ale nieznacznie tracą na skuteczności po PCA.
+##Pozostałe modele mają wyniki zbliżone na obu zbiorach, ale w przypadku KNN i SVM wyniki są niższe na danych po PCA.
+
+
+#Zbuduj finalny model, którego AUROC score będzie >= 80%, pamiętaj o doborze istotnych zmiennych, kroswalidacji oraz dostrojeniu parametrów modelu, pomyśl również o zbalansowaniu klas.
+
+
+## Wybieram model XGBoost jako ostateczny do dopracowania Model
+
+
+
+import pandas as pd
+from xgboost import XGBClassifier
+from sklearn.model_selection import train_test_split, GridSearchCV, cross_val_score
+from sklearn.metrics import roc_auc_score, classification_report
+from sklearn.feature_selection import SelectKBest, mutual_info_classif
+from sklearn.utils.class_weight import compute_sample_weight
+import matplotlib.pyplot as plt
+import numpy as np
+
+# Załadowanie danych
+df = pd.read_csv("Loan_data1.csv")
+
+# Podstawowe czyszczenie danych (opcjonalne)
+df.fillna(df.mean(numeric_only=True), inplace=True)  # Wypełnianie braków dla kolumn numerycznych
+df.fillna(df.mode().iloc[0], inplace=True)  # Wypełnianie braków dla kolumn kategorycznych
+
+# Zdefiniowanie zmiennych X i y
+X = df.drop(columns=['loan_status', 'loan_status_encoded'])  # Usuń zmienne, które nie mogą być w X
+y = df['loan_status_encoded']  # Zakładamy, że loan_status_encoded jest binaryczne (np. 0 = spłacone, 1 = niespłacone)
+
+# Usunięcie silnie skorelowanych kolumn
+correlation_matrix = X.corr().abs()
+upper_triangle = correlation_matrix.where(
+    np.triu(np.ones(correlation_matrix.shape), k=1).astype(bool)
+)
+to_drop = [column for column in upper_triangle.columns if any(upper_triangle[column] > 0.9)]
+X = X.drop(columns=to_drop)
+
+print(f"Usunięto kolumny o wysokiej korelacji: {to_drop}")
+
+# Dobór cech metodą SelectKBest
+k = 15  # Wybieramy top 15 cech
+selector = SelectKBest(score_func=mutual_info_classif, k=k)
+X_new = selector.fit_transform(X, y)
+selected_features = X.columns[selector.get_support()]
+print(f"Wybrane cechy: {selected_features.tolist()}")
+
+# Podział danych na zbiór treningowy i testowy
+X_train, X_test, y_train, y_test = train_test_split(
+    X[selected_features], y, test_size=0.3, random_state=42, stratify=y
+)
+
+# Zbalansowanie klas
+sample_weights = compute_sample_weight(class_weight="balanced", y=y_train)
+
+# Trening modelu XGBoost z GridSearchCV
+param_grid = {
+    'n_estimators': [50, 100, 150],
+    'max_depth': [3, 5, 7],
+    'learning_rate': [0.01, 0.05, 0.1],
+    'subsample': [0.8, 1.0]
+}
+
+xgb = XGBClassifier(random_state=42, use_label_encoder=False, eval_metric="logloss")
+grid_search = GridSearchCV(
+    estimator=xgb,
+    param_grid=param_grid,
+    scoring='roc_auc',
+    cv=5,
+    n_jobs=-1
+)
+grid_search.fit(X_train, y_train, sample_weight=sample_weights)
+
+# Najlepsze parametry
+best_params = grid_search.best_params_
+print(f"Najlepsze parametry: {best_params}")
+
+# Ostateczny model
+final_model = grid_search.best_estimator_
+
+# Ocena modelu na zbiorze testowym
+y_pred_proba = final_model.predict_proba(X_test)[:, 1]
+final_auroc = roc_auc_score(y_test, y_pred_proba)
+print(f"AUROC Score dla modelu z wybranymi cechami i dostrojonymi parametrami: {final_auroc:.4f}")
+
+# Raport klasyfikacji
+y_pred = final_model.predict(X_test)
+print("\nRaport klasyfikacji:")
+print(classification_report(y_test, y_pred))
+
+# Ważność cech
+importances = final_model.feature_importances_
+feature_importance_df = pd.DataFrame({
+    'feature': selected_features,
+    'importance': importances
+}).sort_values(by='importance', ascending=False)
+
+# Wyświetlenie ważności cech
+plt.figure(figsize=(10, 8))
+plt.barh(feature_importance_df['feature'][:10], feature_importance_df['importance'][:10])
+plt.gca().invert_yaxis()
+plt.xlabel("Ważność cech")
+plt.title("Top 10 najważniejszych cech w finalnym modelu")
+plt.show()
+
+
+
+\
+
+
+
+import pandas as pd
+from xgboost import XGBClassifier
+from sklearn.model_selection import train_test_split, cross_val_score, KFold
+from sklearn.metrics import roc_auc_score
+from sklearn.preprocessing import LabelEncoder
+
+# Wczytanie danych
+df = pd.read_csv('Loan_data1.csv')
+
+# Zakodowanie zmiennych kategorycznych na wartości liczbowe za pomocą LabelEncoder
+label_encoder = LabelEncoder()
+for column in ['grade', 'sub_grade', 'home_ownership', 'verification_status', 'purpose',
+               'addr_state', 'grupa_ryzyka', 'income_group', 'employment_group',
+               'loan_amount_group', 'fico_group', 'int_rate_category', 'delinquency_group',
+               'dti_group']:
+    if column in df.columns:
+        df[column] = label_encoder.fit_transform(df[column].astype(str))
+
+# Wybór zmiennych objaśniających i docelowej
+X = df.drop(columns=[
+    'loan_status', 'loan_status_encoded', 'desc', 'issue_d', 'earliest_cr_line',
+    'risk_score_group', 'fico_range_low', 'fico_range_high', 'loan_status_indicator',
+    'credit_age', 'payment_history_length', 'LTR_in_prc', 'DTI_group',
+    'monthly_payment_ratio', 'debt_ratio'
+], errors='ignore')
+
+y = df['loan_status_encoded']
+
+# Podział danych na zbiór treningowy i testowy
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.5, random_state=42, stratify=y)
+
+# Model XGBoost z najlepszymi parametrami
+best_model = XGBClassifier(
+    subsample=0.8,
+    scale_pos_weight=7,
+    n_estimators=100,
+    max_depth=3,
+    learning_rate=0.1,
+    colsample_bytree=1.0,
+    eval_metric='auc',
+    random_state=42
+)
+
+# Walidacja krzyżowa (5-fold)
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+cv_scores = cross_val_score(best_model, X_train, y_train, cv=kf, scoring='roc_auc')
+
+# Wyniki walidacji krzyżowej
+print("Wyniki walidacji krzyżowej (5-fold):")
+print(cv_scores)
+print(f"Średni AUROC Score (5-fold Cross-Validation): {cv_scores.mean():.4f}")
+
+# Trenowanie modelu na zbiorze treningowym
+best_model.fit(X_train, y_train)
+
+# Predykcja na zbiorze testowym
+try:
+    y_pred_proba = best_model.predict_proba(X_test)[:, 1]
+    test_auroc = roc_auc_score(y_test, y_pred_proba)
+    print(f"AUROC Score na zbiorze testowym (z najlepszymi parametrami): {test_auroc:.4f}")
+except Exception as e:
+    print(f"Błąd w obliczaniu AUROC na zbiorze testowym: {e}")
+#Nie mogę osiągnąć AUROC SCore powyzej 80% 
